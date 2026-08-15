@@ -1,3 +1,5 @@
+[中文说明](README.zh-CN.md)
+
 # DSH Desktop
 
 A community desktop shell and warm-toned theme for
