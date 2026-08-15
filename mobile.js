@@ -483,15 +483,28 @@
   // this (either px here, or the drag just ended at dragCurrentX), so the
   // handoff is always to a `left` value transform was already sitting at
   // — nothing left to animate between the two properties.
+  //
+  // `!important`, not a plain assignment: mobile.css's own resting-state
+  // rule declares `left` with !important (needed there to beat theme.css),
+  // and a plain el.style.left write can't outrank that — it was silently
+  // no-opping, so this freeze was never actually taking effect. What a
+  // drag ending near fully-open actually did was clear the live transform
+  // with nothing real holding `left` at the drag's endpoint, snapping the
+  // drawer straight back to the CSS default (fully closed) for a frame
+  // before the class below reopened it — the "let go and it snaps back,
+  // dragging again" report (see the 2026-08-16 chat). left is deliberately
+  // left frozen (not cleared) when this returns; touchend clears it itself
+  // once the open/closed class is set, so the class's own !important rule
+  // — not this leftover freeze — is what the browser actually animates to.
   function settleAt(px) {
     const el = drawerEl();
     if (!el) return;
-    el.style.transition = 'none';
-    el.style.left = `${px}px`;
+    el.style.setProperty('transition', 'none', 'important');
+    el.style.setProperty('left', `${px}px`, 'important');
+    el.style.removeProperty('transform');
     void el.offsetHeight;
-    el.style.transform = '';
+    el.style.removeProperty('transition');
     void el.offsetHeight;
-    el.style.transition = '';
   }
 
   document.addEventListener(
@@ -603,6 +616,13 @@
       // have at that same frequency.
       if (shouldOpen) openSidebar();
       else closeSidebar();
+      // settleAt's freeze is still holding `left` with !important at this
+      // point — the class above changed, but can't visibly do anything
+      // yet, since an inline !important always outranks one on a class
+      // selector too. Releasing it now, with transition already back on
+      // from settleAt, is what actually hands control to the class's own
+      // !important rule and lets the browser animate to it.
+      drawerEl()?.style.removeProperty('left');
     },
     { passive: true }
   );
