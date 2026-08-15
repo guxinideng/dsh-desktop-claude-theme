@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dsh-vendor/
+dsh-vendor.zip
+npm-vendor/
+npm-vendor.zip
+build/icon-1024.png
+build/AppIcon.iconset/
+.codebase-memory/
+*.log
+.DS_Store

@@ -1,0 +1,14 @@
+/* Windows-only patch, loaded after theme.css. Windows keeps the normal
+   native title bar (no hiddenInset/traffic-light trick — that's a macOS
+   concept), so the mac-specific clearance hack in theme.css's "Inset title
+   bar" section doesn't apply here: there's no floating traffic light to
+   clear, and no title bar to hand-draw a drag region for. This undoes just
+   that clearance and gives the floating sidebar card a normal small top
+   margin instead of the 0 that only makes sense paired with body's 36px
+   padding-top. */
+body {
+  padding-top: 0 !important;
+}
+[class*="sidebarCol"] {
+  margin: 8px 8px 16px 16px !important;
+}

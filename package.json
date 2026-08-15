@@ -1,0 +1,21 @@
+{
+  "name": "dsh-desktop-claude-theme",
+  "version": "0.1.0",
+  "description": "Unofficial desktop shell and warm theme for DeepSeek Harness",
+  "author": "dsh-desktop-claude-theme contributors",
+  "license": "MIT",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "vendor-dsh": "bash scripts/vendor-dsh.sh",
+    "vendor-npm": "bash scripts/vendor-npm.sh",
+    "build:personal": "electron-builder --config electron-builder.personal.yml",
+    "build:public": "npm run vendor-dsh && electron-builder --config electron-builder.public.yml",
+    "build:windows": "npm run vendor-npm && electron-builder --config electron-builder.windows.yml --win"
+  },
+  "devDependencies": {
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3"
+  }
+}

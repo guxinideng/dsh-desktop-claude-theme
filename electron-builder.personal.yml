@@ -1,0 +1,25 @@
+# Personal build: assumes you already have @deepseek-ai/dsh installed and
+# `dsh web` reachable at 127.0.0.1:3080 — doesn't bundle dsh, stays small.
+appId: app.dshdesktop.claude-theme
+productName: DSH Desktop
+directories:
+  output: dist/personal
+files:
+  - main.js
+  - theme.css
+  - label-tweaks.js
+  - trace-collapse.js
+  - trace-translate.js
+  - font-picker.js
+  - file-picker.js
+  - preload.js
+  - fonts/**/*
+  - package.json
+mac:
+  identity: null
+  icon: build/icon.icns
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  category: public.app-category.developer-tools

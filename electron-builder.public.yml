@@ -1,0 +1,31 @@
+# Public build: bundles a full copy of @deepseek-ai/dsh (see
+# scripts/vendor-dsh.sh — run that first) so a recipient with nothing
+# installed can still open the app and get a working DSH session. No API
+# key or credentials are bundled; first launch prompts for the recipient's
+# own DeepSeek API key, same as a fresh install of dsh itself would.
+appId: app.dshdesktop.claude-theme
+productName: DSH Desktop
+directories:
+  output: dist/public
+files:
+  - main.js
+  - theme.css
+  - label-tweaks.js
+  - trace-collapse.js
+  - trace-translate.js
+  - font-picker.js
+  - file-picker.js
+  - preload.js
+  - fonts/**/*
+  - package.json
+extraResources:
+  - from: dsh-vendor.zip
+    to: dsh-vendor.zip
+mac:
+  identity: null
+  icon: build/icon.icns
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  category: public.app-category.developer-tools

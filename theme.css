@@ -1,0 +1,432 @@
+/* Claude-style warm theme override for DeepSeek Harness web UI.
+   Light and dark are two DELIBERATELY DIFFERENT palettes now, both warm —
+   this used to force the same cream palette on both `body` (light) and
+   `body[data-ds-dark-theme]` (dark) to fix a mode-switch bug, but that
+   meant "dark mode" was just light mode with the OS toggle ignored. This
+   version designs dark mode properly instead: a warm charcoal/espresso
+   base (not DSH's original cold blue-grey, not a copy of the light
+   palette) with the same terracotta accent, brightened slightly so it
+   still pops against a dark ground. Overriding :root alone gets shadowed
+   here — the app redefines these locally on body for each mode. */
+body {
+  /* --dsw-font-family is set by font-picker.js instead, so the user's
+     saved choice from localStorage always wins over a hardcoded value. */
+  --dsw-alias-bg-base: rgb(250, 249, 245) !important;
+  --dsw-alias-bg-layer-1: rgb(238, 236, 225) !important;
+  --dsw-alias-bg-layer-2: rgb(255, 255, 255) !important;
+  --dsw-alias-bg-layer-3: rgb(240, 238, 228) !important;
+  --dsw-alias-bg-overlay: rgb(255, 255, 255) !important;
+  --dsw-alias-bg-skeleton: rgba(0, 0, 0, .06) !important;
+  --dsw-alias-bg-multi-select: rgb(238, 236, 225) !important;
+  --dsw-alias-bg-module-platform: rgb(240, 238, 228) !important;
+
+  --dsw-alias-label-primary: rgb(40, 36, 32) !important;
+  --dsw-alias-label-primary-bluish: rgb(40, 36, 32) !important;
+  --dsw-alias-label-primary-dimmed: rgb(70, 65, 58) !important;
+  --dsw-alias-label-secondary: rgb(110, 103, 92) !important;
+  --dsw-alias-label-tertiary: rgb(150, 143, 130) !important;
+  --dsw-alias-label-caption: rgb(150, 143, 130) !important;
+  --dsw-alias-label-dimmed: rgb(190, 184, 172) !important;
+  --dsw-alias-label-primary-foreground: rgb(255, 255, 255) !important;
+  --dsw-alias-label-primary-inverted: rgb(255, 255, 255) !important;
+
+  --dsw-alias-brand-primary: rgb(204, 120, 92) !important;
+  --dsw-alias-brand-primary-invert: rgb(255, 255, 255) !important;
+  --dsw-alias-brand-text: rgb(204, 120, 92) !important;
+  --dsw-alias-brand-primary-new-colorprimary-new-color: rgb(204, 120, 92) !important;
+  --dsw-alias-button-primary-fill: rgb(204, 120, 92) !important;
+  --dsw-alias-button-primary-hover: rgb(184, 100, 74) !important;
+  --dsw-alias-button-primary-dimmed: rgb(230, 190, 175) !important;
+  --dsw-alias-button-contrast-fill: rgb(255, 255, 255) !important;
+  --dsw-alias-button-info-fill: rgb(204, 120, 92) !important;
+  --dsw-alias-button-info-hover: rgb(184, 100, 74) !important;
+  --dsw-alias-state-business-primary: rgb(204, 120, 92) !important;
+  --dsw-alias-state-business-tertiary: rgb(238, 217, 208) !important;
+
+  --dsw-alias-button-elevated-fill: rgb(255, 255, 255) !important;
+  --dsw-alias-button-floating-fill: rgb(240, 238, 228) !important;
+  --dsw-alias-button-floating-hover: rgb(230, 227, 214) !important;
+  --dsw-alias-button-ghost-active-fill: rgb(238, 236, 225) !important;
+  --dsw-alias-button-ghost-active-hover: rgb(230, 227, 214) !important;
+  --dsw-alias-button-ghost-active-border: rgb(210, 206, 192) !important;
+  --dsw-alias-button-tool-bar-fill: rgba(0, 0, 0, .06) !important;
+  --dsw-alias-button-tool-bar-fill-invisible: rgba(0, 0, 0, .03) !important;
+  --dsw-alias-button-tool-bar-hover: rgba(0, 0, 0, .1) !important;
+
+  --dsw-alias-border-l1: rgba(0, 0, 0, .07) !important;
+  --dsw-alias-border-l2: rgba(0, 0, 0, .1) !important;
+  --dsw-alias-border-l2-darkmode-thin: rgba(0, 0, 0, .07) !important;
+  --dsw-alias-border-l3: rgba(0, 0, 0, .14) !important;
+  --dsw-alias-border-l4: rgba(0, 0, 0, .18) !important;
+  --dsw-alias-border-inverted: rgba(0, 0, 0, .06) !important;
+  --dsw-alias-border-inverted2: rgba(0, 0, 0, .08) !important;
+
+  --dsw-alias-interactive-bg-hover: rgba(0, 0, 0, .05) !important;
+  --dsw-alias-interactive-bg-hover-solid: rgb(238, 236, 225) !important;
+  --dsw-alias-interactive-bg-active: rgba(0, 0, 0, .08) !important;
+  --dsw-alias-interactive-bg-hover-accent: rgba(204, 120, 92, .15) !important;
+  --dsw-alias-interactive-bg-hover-danger: rgba(220, 80, 60, .12) !important;
+
+  --dsw-alias-markdown-code-block: rgb(246, 244, 238) !important;
+  --dsw-alias-markdown-code-block-banner: rgb(238, 236, 225) !important;
+  --dsw-alias-markdown-code-segment-selected: rgb(238, 236, 225) !important;
+  --dsw-alias-markdown-code-segment-unselected: rgb(246, 244, 238) !important;
+  --dsw-alias-markdown-inline-code: rgb(240, 238, 228) !important;
+  --dsw-alias-markdown-citation: rgb(240, 238, 228) !important;
+  --dsw-alias-markdown-tag: rgb(240, 238, 228) !important;
+  --dsw-alias-markdown-placeholder: rgb(240, 238, 228) !important;
+
+  --dsw-alias-scrollbar-bg-l1: rgba(0,0,0,.15) !important;
+  --dsw-alias-scrollbar-bg-l2: rgba(0,0,0,.25) !important;
+  --dsw-alias-scrollbar-hover-l1: rgba(0,0,0,.25) !important;
+  --dsw-alias-scrollbar-hover-l2: rgba(0,0,0,.35) !important;
+
+  --dsw-alias-toast-bg: rgb(45, 40, 35) !important;
+  --dsw-alias-tooltip-bg: rgb(45, 40, 35) !important;
+
+  --dsw-specific-bubble: rgb(255, 255, 255) !important;
+  --dsw-specific-bubble-highlight: rgb(240, 238, 228) !important;
+  --dsw-specific-input-major: rgb(255, 255, 255) !important;
+  --dsw-specific-login-input: rgb(255, 255, 255) !important;
+  --dsw-specific-menu: rgb(255, 255, 255) !important;
+  --dsw-specific-selector: rgb(240, 238, 228) !important;
+  --dsw-specific-sidebar-fill: rgb(238, 236, 225) !important;
+  --dsw-specific-sidebar-nav-item-active: rgb(230, 210, 198) !important;
+  --dsw-specific-sidebar-nav-item-active-accent: rgb(204, 120, 92) !important;
+  --dsw-specific-sidebar-nav-item-hover: rgb(230, 227, 214) !important;
+  --dsw-specific-tip: rgb(240, 238, 228) !important;
+
+  --dsw-linear-gradient-think: linear-gradient(180deg, rgb(250,249,245) 20.19%, rgba(250,249,245,0) 100%) !important;
+  --dsw-linear-think-select: linear-gradient(180deg, rgb(238,236,225) 20.19%, rgba(238,236,225,0) 100%) !important;
+}
+
+body[data-ds-dark-theme] {
+  /* Warmth here is deliberately much subtler than in the light palette.
+     An earlier pass carried the cream theme's warmth straight over —
+     base rgb(26,23,21), body text rgb(236,230,222), secondary text
+     rgb(168,158,146) — and at those red-minus-blue spreads (5, 14, 22)
+     the whole window read as yellow-stained rather than warm, because
+     the text covers so much more area than any accent does. These keep
+     the spread at 1–5 across backgrounds and text, so the surfaces read
+     as neutral charcoal, and the terracotta accent alone carries the
+     warmth. */
+  --dsw-alias-bg-base: rgb(24, 23, 22) !important;
+  /* Sidebar sits just a few RGB units above base — close enough that the
+     border and the card's own shadow separate it, rather than a fill
+     jump doing it. */
+  --dsw-alias-bg-layer-1: rgb(31, 30, 28) !important;
+  --dsw-alias-bg-layer-2: rgb(38, 36, 34) !important;
+  --dsw-alias-bg-layer-3: rgb(44, 42, 40) !important;
+  --dsw-alias-bg-overlay: rgb(50, 48, 46) !important;
+  --dsw-alias-bg-skeleton: rgba(255, 255, 255, .06) !important;
+  --dsw-alias-bg-multi-select: rgb(31, 30, 28) !important;
+  --dsw-alias-bg-module-platform: rgb(44, 42, 40) !important;
+
+  --dsw-alias-label-primary: rgb(232, 230, 227) !important;
+  --dsw-alias-label-primary-bluish: rgb(232, 230, 227) !important;
+  --dsw-alias-label-primary-dimmed: rgb(198, 195, 190) !important;
+  --dsw-alias-label-secondary: rgb(163, 160, 154) !important;
+  --dsw-alias-label-tertiary: rgb(124, 121, 116) !important;
+  --dsw-alias-label-caption: rgb(124, 121, 116) !important;
+  --dsw-alias-label-dimmed: rgb(88, 85, 81) !important;
+  --dsw-alias-label-primary-foreground: rgb(24, 23, 22) !important;
+  --dsw-alias-label-primary-inverted: rgb(24, 23, 22) !important;
+
+  --dsw-alias-brand-primary: rgb(224, 138, 110) !important;
+  --dsw-alias-brand-primary-invert: rgb(24, 23, 22) !important;
+  --dsw-alias-brand-text: rgb(224, 138, 110) !important;
+  --dsw-alias-brand-primary-new-colorprimary-new-color: rgb(224, 138, 110) !important;
+  --dsw-alias-button-primary-fill: rgb(224, 138, 110) !important;
+  --dsw-alias-button-primary-hover: rgb(236, 155, 128) !important;
+  --dsw-alias-button-primary-dimmed: rgb(88, 58, 46) !important;
+  --dsw-alias-button-contrast-fill: rgb(24, 23, 22) !important;
+  --dsw-alias-button-info-fill: rgb(224, 138, 110) !important;
+  --dsw-alias-button-info-hover: rgb(236, 155, 128) !important;
+  --dsw-alias-state-business-primary: rgb(224, 138, 110) !important;
+  --dsw-alias-state-business-tertiary: rgb(72, 48, 39) !important;
+
+  --dsw-alias-button-elevated-fill: rgb(38, 36, 34) !important;
+  --dsw-alias-button-floating-fill: rgb(44, 42, 40) !important;
+  --dsw-alias-button-floating-hover: rgb(50, 48, 46) !important;
+  --dsw-alias-button-ghost-active-fill: rgb(44, 42, 40) !important;
+  --dsw-alias-button-ghost-active-hover: rgb(50, 48, 46) !important;
+  --dsw-alias-button-ghost-active-border: rgb(64, 61, 58) !important;
+  --dsw-alias-button-tool-bar-fill: rgba(255, 255, 255, .06) !important;
+  --dsw-alias-button-tool-bar-fill-invisible: rgba(255, 255, 255, .03) !important;
+  --dsw-alias-button-tool-bar-hover: rgba(255, 255, 255, .1) !important;
+
+  --dsw-alias-border-l1: rgba(255, 252, 248, .08) !important;
+  --dsw-alias-border-l2: rgba(255, 252, 248, .12) !important;
+  --dsw-alias-border-l2-darkmode-thin: rgba(255, 252, 248, .08) !important;
+  --dsw-alias-border-l3: rgba(255, 252, 248, .16) !important;
+  --dsw-alias-border-l4: rgba(255, 252, 248, .22) !important;
+  --dsw-alias-border-inverted: rgba(255, 252, 248, .06) !important;
+  --dsw-alias-border-inverted2: rgba(255, 252, 248, .08) !important;
+
+  --dsw-alias-interactive-bg-hover: rgba(255, 252, 248, .06) !important;
+  --dsw-alias-interactive-bg-hover-solid: rgb(44, 42, 40) !important;
+  --dsw-alias-interactive-bg-active: rgba(255, 252, 248, .1) !important;
+  --dsw-alias-interactive-bg-hover-accent: rgba(224, 138, 110, .18) !important;
+  --dsw-alias-interactive-bg-hover-danger: rgba(230, 100, 80, .18) !important;
+
+  --dsw-alias-markdown-code-block: rgb(17, 16, 16) !important;
+  --dsw-alias-markdown-code-block-banner: rgb(23, 22, 21) !important;
+  --dsw-alias-markdown-code-segment-selected: rgb(33, 32, 30) !important;
+  --dsw-alias-markdown-code-segment-unselected: rgb(17, 16, 16) !important;
+  --dsw-alias-markdown-inline-code: rgb(44, 42, 40) !important;
+  --dsw-alias-markdown-citation: rgb(44, 42, 40) !important;
+  --dsw-alias-markdown-tag: rgb(44, 42, 40) !important;
+  --dsw-alias-markdown-placeholder: rgb(44, 42, 40) !important;
+
+  --dsw-alias-scrollbar-bg-l1: rgba(255, 255, 255, .15) !important;
+  --dsw-alias-scrollbar-bg-l2: rgba(255, 255, 255, .25) !important;
+  --dsw-alias-scrollbar-hover-l1: rgba(255, 255, 255, .25) !important;
+  --dsw-alias-scrollbar-hover-l2: rgba(255, 255, 255, .35) !important;
+
+  --dsw-alias-toast-bg: rgb(50, 48, 46) !important;
+  --dsw-alias-tooltip-bg: rgb(50, 48, 46) !important;
+
+  --dsw-specific-bubble: rgb(38, 36, 34) !important;
+  --dsw-specific-bubble-highlight: rgb(44, 42, 40) !important;
+  --dsw-specific-input-major: rgb(38, 36, 34) !important;
+  --dsw-specific-login-input: rgb(38, 36, 34) !important;
+  --dsw-specific-menu: rgb(50, 48, 46) !important;
+  --dsw-specific-selector: rgb(44, 42, 40) !important;
+  --dsw-specific-sidebar-fill: rgb(31, 30, 28) !important;
+  /* Selected session keeps an accent tint — this is one of the few places
+     the warmth is supposed to show. */
+  --dsw-specific-sidebar-nav-item-active: rgb(58, 44, 39) !important;
+  --dsw-specific-sidebar-nav-item-active-accent: rgb(224, 138, 110) !important;
+  --dsw-specific-sidebar-nav-item-hover: rgb(44, 42, 40) !important;
+  --dsw-specific-tip: rgb(44, 42, 40) !important;
+
+  --dsw-linear-gradient-think: linear-gradient(180deg, rgb(24,23,22) 20.19%, rgba(24,23,22,0) 100%) !important;
+  --dsw-linear-think-select: linear-gradient(180deg, rgb(31,30,28) 20.19%, rgba(31,30,28,0) 100%) !important;
+}
+
+/* Hide the "预览版" (preview) badge next to the welcome headline.
+   Matched by class substring since the hash prefix is build-specific. */
+[class*="previewBadge"] {
+  display: none !important;
+}
+
+/* Quiet, not hidden: pure trace/log rows (Think, Bash, tool calls, context
+   injection, todo updates) fade to 50% opacity so they don't compete with
+   actual prose, but stay fully present, still natively click-to-expand,
+   and snap back to full opacity on hover/focus. The .ds-trace-quiet class
+   is applied by trace-collapse.js, which also excludes interactive rows
+   like 提问 (questions awaiting a reply) from this treatment. */
+.ds-trace-quiet {
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+}
+
+/* Widen the reading column — the default 748px cap left too much empty
+   margin on both sides at typical window widths.
+   This is a CSS custom property, not a per-element override: the message
+   column, the stats footer line, the composer input card, and the
+   warning-card component all read `--dsh-chat-content-width` from this one
+   place (`.wSkVaW_root`, the conversation view's outer wrapper). Overriding
+   only .Md3f7G_column's max-width (an earlier version of this rule) widened
+   the messages but left the stats line and composer card at the old 748px,
+   which made the stats line's text-overflow:ellipsis clip mid-word and the
+   composer look narrower than the content above it. */
+.wSkVaW_root {
+  --dsh-chat-content-width: 900px !important;
+}
+.ds-trace-quiet:hover,
+.ds-trace-quiet:focus-within {
+  opacity: 1;
+}
+
+/* ── UI polish pass ──────────────────────────────────────────────────── */
+
+/* Text selection picks up the accent instead of system blue. */
+::selection {
+  background: rgba(204, 120, 92, 0.25);
+}
+
+/* Keyboard focus gets a visible terracotta ring; mouse clicks stay clean.
+   Scoped to genuinely interactive controls only — a bare `:focus-visible`
+   also matches the large tabindex="0" containers this app uses for its
+   scroll region and expandable rows, which drew a full-width outline box
+   around whole sections of the page. */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="tab"]:focus-visible,
+[role="menuitem"]:focus-visible {
+  outline: 2px solid rgba(204, 120, 92, 0.65);
+  outline-offset: 2px;
+}
+
+/* Buttons and session rows ease between states instead of snapping. */
+button,
+[role="button"],
+[class*="_treeitem" i],
+[class*="sessionItem" i] {
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+}
+
+/* Send button: slight press feedback. */
+button[aria-label="发送消息"]:hover {
+  transform: scale(1.06);
+}
+button[aria-label="发送消息"]:active {
+  transform: scale(0.96);
+}
+
+/* Composer: soft accent halo while typing.
+   Targets .ds-composer-card, a stable class label-tweaks.js puts on the
+   actual rounded input card. Matching `[class*="_composer"]` instead hit
+   the 992px-wide outer seat/stack wrappers, painting a hard rectangle
+   across the whole bottom of the window. */
+.ds-composer-card:focus-within {
+  box-shadow: 0 0 0 1.5px rgba(204, 120, 92, 0.4),
+    0 4px 18px rgba(40, 36, 32, 0.06) !important;
+}
+
+/* Run status line: show the elapsed time before the label, not after.
+   The app renders `Deep diving...` as a bare text node followed by a
+   .turnStatusClock span, so reversing the flex direction reorders them
+   without touching the DOM; the clock's margin flips to match. */
+[class*="turnStatus"]:not([class*="turnStatusClock"]) {
+  display: inline-flex;
+  flex-direction: row-reverse;
+  align-items: baseline;
+}
+[class*="turnStatusClock"] {
+  margin-left: 0 !important;
+  margin-right: 8px !important;
+}
+
+/* Menus, popovers and the settings dialog: softer, warmer shadow. */
+[role="menu"],
+[role="dialog"] {
+  box-shadow: 0 8px 32px rgba(40, 36, 32, 0.14) !important;
+}
+
+/* One quiet entrance for newly streamed conversation blocks. */
+@keyframes ds-block-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+[class*="flowItem"] > * {
+  animation: ds-block-in 0.22s ease both;
+}
+
+/* Honor the user's reduced-motion preference across everything above. */
+@media (prefers-reduced-motion: reduce) {
+  button,
+  [role="button"],
+  .ds-trace-quiet,
+  [class*="flowItem"] > * {
+    transition: none !important;
+    animation: none !important;
+  }
+  button[aria-label="发送消息"]:hover,
+  button[aria-label="发送消息"]:active {
+    transform: none;
+  }
+}
+
+/* ── Inset title bar ──────────────────────────────────────────────────
+   main.js sets titleBarStyle: 'hiddenInset', which removes the opaque
+   native title bar strip so the traffic lights float directly over the
+   page instead of sitting on a separate dark bar above it. Two things
+   that removes and this restores by hand: clearance so the buttons
+   (trafficLightPosition 16,16, ~14px tall) don't sit on top of the
+   sidebar's own logo row, and window-drag behavior, since a window with
+   no title bar has no draggable region at all otherwise. */
+body {
+  padding-top: 36px !important;
+  box-sizing: border-box !important;
+  -webkit-app-region: drag;
+}
+body * {
+  -webkit-app-region: no-drag;
+}
+
+/* The sidebar's fill color will never exactly match the traffic-light
+   corner's background (tried pulling it up flush against that corner —
+   still read as an accidental seam, not an intentional edge). Making the
+   boundary deliberate instead: the sidebar floats as its own rounded,
+   shadowed card inset from the window edges, on top of the plain window
+   background (which does match the main column, so no seam there either).
+   The traffic lights end up sitting on that same plain background, above
+   the card, instead of competing with it for a shared edge. */
+[class*="sidebarCol"] {
+  /* No top margin: body's own padding-top already clears the traffic
+     lights, and adding a margin here stacked on top of it, dropping the
+     card ~32px below where the main column starts. Zero here lines the
+     card's top edge up with the main column's. */
+  margin: 0 8px 16px 16px !important;
+  height: calc(100% - 16px) !important;
+  border-radius: 16px !important;
+  overflow: hidden !important;
+  /* The app draws its own 1px right border here as the sidebar/content
+     divider. On a floating rounded card that border is both redundant and
+     wrong: it only exists on one side, so it reads as a straight vertical
+     rule that visibly fails to follow the corner radius. The card's own
+     ring + shadow define its edge now. */
+  border: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* Collapsed (icon rail) state. The rail's 56px track is sized to fit its
+   contents exactly — ~10px of inner padding either side of a 36px icon —
+   so it has no spare width at all, and the card's 24px of horizontal
+   margin was cutting the icons in half. Widening the track by exactly
+   that 24px keeps the card's interior at the 56px the rail was designed
+   for, so the icons fit as intended while the card keeps the same 16px
+   left gutter it has when expanded. Overriding the track (set inline by
+   the sidebar's own resize logic) is safe here specifically because the
+   collapsed width is a fixed constant, not a user-dragged one. */
+[data-sidebar-collapsed="true"] {
+  grid-template-columns: 80px minmax(0px, 1fr) 0px !important;
+}
+
+/* Contact + key + ambient, the standard three-part shadow model, rather
+   than one hard drop or a uniform blur ramp (both of which this went
+   through first — the single drop had a visible cut-off edge, and the
+   even ramp diffused so uniformly that the corner radius stopped
+   reading at all).
+     · contact  0 1px 2px, the highest opacity — a tight dark line that
+                traces the outline, and it is this layer that makes the
+                16px corner arc legible
+     · key      0 3px 6px and 0 8px 16px, the directional falloff
+     · ambient  0 20px 40px, wide and faint, standing in for room light
+   Tinted a neutral warm-dark (50,44,38) instead of pure black, and split
+   per theme, since a shadow weighted for a near-black background turns
+   into a grey smear over cream. */
+body[data-ds-dark-theme] [class*="sidebarCol"] {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 1px 2px rgba(0, 0, 0, 0.38),
+    0 3px 6px rgba(0, 0, 0, 0.28),
+    0 8px 16px rgba(0, 0, 0, 0.24),
+    0 20px 40px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+}
+body:not([data-ds-dark-theme]) [class*="sidebarCol"] {
+  box-shadow:
+    0 0 0 1px rgba(50, 44, 38, 0.06),
+    0 1px 2px rgba(50, 44, 38, 0.13),
+    0 3px 6px rgba(50, 44, 38, 0.09),
+    0 8px 16px rgba(50, 44, 38, 0.08),
+    0 20px 40px rgba(50, 44, 38, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+}
+
+/* The sidebar's inner panel is sized by inline style to the grid track's
+   full width (280px), so once the card above insets itself by 24px of
+   horizontal margin, that panel overhangs the card's right edge and the
+   overflow:hidden clips it — visibly cutting off the collapse button and
+   the session timestamps. Making it fluid lets it reflow to the card's
+   actual width instead. */
+[class*="hHd-Xa_root"] {
+  width: 100% !important;
+}

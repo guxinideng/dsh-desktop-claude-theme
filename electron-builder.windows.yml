@@ -1,0 +1,33 @@
+# Windows build: reuses the same Electron shell + theme as the mac builds,
+# but doesn't vendor a fixed dsh version — there's no Windows machine in
+# this project's own dev loop to pin/test a version against, so instead it
+# bundles just npm (see scripts/vendor-npm.sh) and fetches
+# @deepseek-ai/dsh@latest for real on first launch. That trades the mac
+# public build's "works offline, tested against one pinned dsh version" for
+# "always current, needs internet on first run" — deliberate, not a
+# downgrade. No API key or credentials are bundled either way.
+appId: app.dshdesktop.claude-theme
+productName: DSH Desktop
+directories:
+  output: dist/windows
+files:
+  - main.js
+  - theme.css
+  - windows-overrides.css
+  - label-tweaks.js
+  - trace-collapse.js
+  - trace-translate.js
+  - font-picker.js
+  - file-picker.js
+  - preload.js
+  - fonts/**/*
+  - package.json
+extraResources:
+  - from: npm-vendor.zip
+    to: npm-vendor.zip
+win:
+  icon: build/icon.ico
+  target:
+    - target: portable
+      arch:
+        - x64
