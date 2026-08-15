@@ -19,6 +19,12 @@
 //   GATEWAY_PORT    port this process listens on                (default 3090)
 //   DSH_PORT        port dsh itself binds to                     (default 3080)
 //   DSH_BIN         command used to launch dsh                   (default "dsh")
+//   DSH_TRUSTED_HOSTS  comma-separated host:port authorities passed to dsh's
+//                   own --trusted-host flag, so its /api browser-trust fence
+//                   accepts requests proxied through this gateway (unset =
+//                   none passed; dsh then only trusts its own address, and
+//                   every proxied request 403s since the browser's Origin
+//                   never matches 127.0.0.1:<DSH_PORT>)
 //   IDLE_MINUTES    idle time with no open connections before     (default 30)
 //                   dsh is stopped
 //   GATEWAY_TOKEN   shared secret required to use the gateway —
@@ -26,18 +32,37 @@
 //                   a cookie so the page's own requests (including
 //                   the WebSocket) stay authorized after that.
 //                   Unset = no auth; only safe on a trusted network.
+//   TLS_CERT_FILE   PEM cert (with TLS_KEY_FILE) to serve HTTPS instead of
+//   TLS_KEY_FILE    plain HTTP — required for real phone browsers to work at
+//                   all off a bare IP: they treat plain-http non-loopback
+//                   origins as an insecure context and disable crypto.subtle
+//                   / crypto.randomUUID, which dsh's own frontend calls, and
+//                   they attach stricter Fetch-Metadata (Sec-Fetch-Site) to
+//                   requests that trip dsh's browser-trust fence. Both unset
+//                   = plain HTTP, fine for a loopback-only tunnel.
 //
 // Usage: npm install && npm run gateway
 
 const http = require('http');
+const https = require('https');
+const fs = require('fs');
+const path = require('path');
 const httpProxy = require('http-proxy');
 const { spawn } = require('child_process');
 
 const GATEWAY_PORT = Number(process.env.GATEWAY_PORT) || 3090;
 const DSH_PORT = Number(process.env.DSH_PORT) || 3080;
 const DSH_BIN = process.env.DSH_BIN || 'dsh';
+const DSH_TRUSTED_HOSTS = (process.env.DSH_TRUSTED_HOSTS || '')
+  .split(',')
+  .map((h) => h.trim())
+  .filter(Boolean);
 const IDLE_MS = (Number(process.env.IDLE_MINUTES) || 30) * 60 * 1000;
 const TOKEN = process.env.GATEWAY_TOKEN || null;
+const TLS_OPTS =
+  process.env.TLS_CERT_FILE && process.env.TLS_KEY_FILE
+    ? { cert: fs.readFileSync(process.env.TLS_CERT_FILE), key: fs.readFileSync(process.env.TLS_KEY_FILE) }
+    : null;
 const DSH_URL = `http://127.0.0.1:${DSH_PORT}`;
 const COOKIE_NAME = 'dsh_gateway_token';
 // However long IDLE_MS is, poll for it at a matching cadence — capped to
@@ -82,8 +107,10 @@ function pingDsh(timeoutMs) {
 }
 
 function spawnDsh() {
-  console.log(`[gateway] starting dsh: ${DSH_BIN} web --port ${DSH_PORT}`);
-  const child = spawn(DSH_BIN, ['web', '--port', String(DSH_PORT)], { stdio: 'pipe' });
+  const args = ['web', '--port', String(DSH_PORT)];
+  for (const host of DSH_TRUSTED_HOSTS) args.push('--trusted-host', host);
+  console.log(`[gateway] starting dsh: ${DSH_BIN} ${args.join(' ')}`);
+  const child = spawn(DSH_BIN, args, { stdio: 'pipe' });
   child.stdout.on('data', (d) => process.stdout.write(`[dsh] ${d}`));
   child.stderr.on('data', (d) => process.stderr.write(`[dsh] ${d}`));
   child.on('exit', (code) => {
@@ -167,7 +194,14 @@ function authMethod(req) {
   return null;
 }
 
-const proxy = httpProxy.createProxyServer({ target: DSH_URL, changeOrigin: true });
+// changeOrigin is deliberately left off: dsh's own /api browser-trust fence
+// requires the Host header it sees to match the browser's Origin (see
+// @deepseek-ai/dsh-client-connection's isTrustedApiRequest) — rewriting Host
+// to the backend's own address (what changeOrigin does) would desync it from
+// the untouched Origin header and get every proxied request 403'd. Passing
+// the original inbound Host straight through keeps the two in sync, and
+// DSH_TRUSTED_HOSTS is what gets that Host authorized in the first place.
+const proxy = httpProxy.createProxyServer({ target: DSH_URL });
 proxy.on('error', (err, req, res) => {
   console.error('[gateway] proxy error:', err.message);
   if (res && !res.headersSent && typeof res.writeHead === 'function') {
@@ -178,7 +212,68 @@ proxy.on('error', (err, req, res) => {
   }
 });
 
-const server = http.createServer(async (req, res) => {
+// Theme/mobile assets and the index-HTML injection that references them —
+// see theme.css and mobile.css/mobile.js for what these actually change.
+// This is the only response body the gateway ever rewrites; every other
+// route (JS/CSS bundles, /api, WebSocket) stays a byte-for-byte proxy.
+const THEME_ASSETS = {
+  '/__ds_theme/theme.css': { file: path.join(__dirname, 'theme.css'), type: 'text/css; charset=utf-8' },
+  '/__ds_theme/mobile.css': { file: path.join(__dirname, 'mobile.css'), type: 'text/css; charset=utf-8' },
+  '/__ds_theme/mobile.js': { file: path.join(__dirname, 'mobile.js'), type: 'application/javascript; charset=utf-8' },
+};
+
+function serveThemeAsset(pathname, res) {
+  const asset = THEME_ASSETS[pathname];
+  res.writeHead(200, { 'content-type': asset.type, 'cache-control': 'no-cache' });
+  res.end(fs.readFileSync(asset.file, 'utf8'));
+}
+
+// main.js injects theme.css into the Electron window at runtime via
+// webContents.insertCSS — there's no webContents here, so this does the
+// browser-side equivalent by fetching dsh's own index HTML and splicing in
+// <link>/<script> tags before proxying it to the client.
+function serveThemedIndex(req, res) {
+  const upstream = http.get(DSH_URL + req.url, (dshRes) => {
+    const chunks = [];
+    dshRes.on('data', (chunk) => chunks.push(chunk));
+    dshRes.on('end', () => {
+      let body = Buffer.concat(chunks).toString('utf8');
+      body = body
+        // Pinch-zoom fights the drawer's own swipe gestures more than it
+        // helps on a chat UI that already reflows its own text size — this
+        // only takes effect on mobile's narrow-viewport rendering, desktop
+        // browsers ignore user-scalable entirely.
+        .replace(
+          '<meta name="viewport" content="width=device-width, initial-scale=1" />',
+          '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />'
+        )
+        .replace(
+          '</head>',
+          '<link rel="stylesheet" href="/__ds_theme/theme.css">\n' +
+            '<link rel="stylesheet" href="/__ds_theme/mobile.css">\n' +
+            '</head>'
+        )
+        .replace('</body>', '<script src="/__ds_theme/mobile.js"></script>\n</body>');
+      // dsh serves this chunked (no content-length at all) — carrying that
+      // header forward while also setting content-length below leaves both
+      // present, which is an invalid combination (RFC 7230 §3.3.3) that had
+      // the client hang partway through the page load, unsure which one to
+      // trust for where the body ends.
+      const headers = { ...dshRes.headers, 'content-length': Buffer.byteLength(body) };
+      delete headers['content-encoding'];
+      delete headers['transfer-encoding'];
+      res.writeHead(dshRes.statusCode, headers);
+      res.end(body);
+    });
+  });
+  upstream.on('error', (err) => {
+    console.error('[gateway] index fetch error:', err.message);
+    if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end('dsh 暂时不可用，请稍后重试');
+  });
+}
+
+const requestHandler = async (req, res) => {
   const auth = authMethod(req);
   if (auth === null) {
     res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8' });
@@ -192,6 +287,12 @@ const server = http.createServer(async (req, res) => {
       'Set-Cookie',
       `${COOKIE_NAME}=${TOKEN}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`
     );
+  }
+
+  const pathname = new URL(req.url, 'http://localhost').pathname;
+  if (pathname in THEME_ASSETS) {
+    serveThemeAsset(pathname, res);
+    return;
   }
 
   touch();
@@ -211,8 +312,15 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/') {
+    serveThemedIndex(req, res);
+    return;
+  }
+
   proxy.web(req, res);
-});
+};
+
+const server = TLS_OPTS ? https.createServer(TLS_OPTS, requestHandler) : http.createServer(requestHandler);
 
 server.on('upgrade', async (req, socket, head) => {
   // The page only opens a WebSocket after its initial HTML load already
@@ -245,7 +353,7 @@ server.on('upgrade', async (req, socket, head) => {
 
 server.listen(GATEWAY_PORT, '127.0.0.1', () => {
   console.log(
-    `[gateway] listening on 127.0.0.1:${GATEWAY_PORT}, proxying to dsh on ${DSH_PORT}, ` +
+    `[gateway] listening on ${TLS_OPTS ? 'https' : 'http'}://127.0.0.1:${GATEWAY_PORT}, proxying to dsh on ${DSH_PORT}, ` +
       `idle timeout ${(IDLE_MS / 60000).toFixed(1)} min${TOKEN ? '' : ', auth DISABLED'}`
   );
   console.log('[gateway] point your tunnel (Tailscale/Cloudflare/etc.) at this port, not at dsh directly.');

@@ -1,0 +1,476 @@
+/* mobile.css — responsive overrides for phone-width access through
+   remote-gateway.js. Layered on top of theme.css (loaded first — see
+   remote-gateway.js's index injection), so these rules only need to touch
+   what's actually different on a narrow screen: theme.css's own desktop-chrome
+   assumptions (Electron title-bar clearance, the floating-card sidebar with
+   its margins/shadow, the collapsed-rail width) don't hold here and are
+   reset below rather than fought with !important stacking.
+
+   Selectors are the app's real hashed CSS-module class names, read from the
+   live DOM (see the 2026-08-15 brainstorming session) — they will drift
+   when dsh's frontend build changes; this is the same fragility theme.css
+   already accepts for its desktop overrides. */
+
+@media (max-width: 640px) {
+  /* Undo the Electron-only title-bar clearance hack — there's no native
+     title bar in a phone browser, so this just leaves a blank strip. */
+  body {
+    padding-top: 0 !important;
+  }
+
+  /* dsh's own app shell already fills the viewport and manages its own
+     internal scroll regions (message list, sidebar) — body itself was
+     never meant to scroll. Any stray overflow there is what iOS Safari's
+     rubber-band bounce grabs onto, yanking the whole page instead of just
+     the message list when you overscroll. Pinning html/body down removes
+     the thing that bounces; the inner scroll containers are untouched and
+     keep scrolling normally. */
+  html,
+  body {
+    position: fixed !important;
+    overflow: hidden !important;
+    width: 100% !important;
+    height: 100dvh !important;
+  }
+
+  /* Declares the same intent mobile.js's touchmove handler enforces:
+     native touch handling here only ever pans vertically, so a horizontal
+     swipe never becomes a simultaneous native scroll/rubber-band on
+     whatever's under the finger while the drawer's own transform is
+     sliding it in — the two fighting over the same gesture is what
+     produced the smeared, overlapping-text look mid-swipe. Anything that
+     genuinely needs native horizontal scrolling (a wide code block) can
+     still declare its own touch-action to opt back in. */
+  body {
+    touch-action: pan-y !important;
+  }
+
+  /* The chat column's forced 900px reading width (theme.css) has nothing to
+     cap on a 375px viewport — let it use the full available width. */
+  .wSkVaW_root {
+    --dsh-chat-content-width: 100% !important;
+  }
+
+  /* ── Sidebar becomes an overlay drawer instead of a grid column ──────
+     .pI_x6G_frame is the CSS Grid whose grid-template-columns theme.css
+     and dsh itself both drive off [data-sidebar-collapsed]. Forcing the
+     content column to 1fr always (dropping the sidebar's own track to 0)
+     means content is never squeezed — the sidebar instead floats on top,
+     positioned by mobile.js via its own ds-mobile-drawer-open class (see
+     below), independent of dsh's [data-sidebar-collapsed] — mobile.js now
+     actively holds that attribute at "not collapsed" (see its own opening
+     comment for why), so a selector keyed off it here would be permanently
+     true and the drawer would never be able to close.
+
+     dsh's own AppFrame.module.css puts `transition: grid-template-columns
+     var(--ds-transition-duration-slow) ...` directly on .pI_x6G_frame, for
+     animating its desktop rail-vs-full-width toggle. Pinning the column
+     value above doesn't touch that transition — the toggle button still
+     changes dsh's own inline grid-template-columns for an instant, and the
+     browser starts animating from wherever the grid happened to be
+     rendering *before* this file's !important value fully applied, through
+     to the pinned target. That brief animated pass through an in-between
+     column width, layered underneath this file's own transform-based
+     slide, is what looked like the drawer opening in two stages — a
+     narrow flash before it widened to the real drawer (see the 2026-08-16
+     chat; two earlier guesses at this before landing on the actual
+     mechanism, found by walking dsh's own stylesheet rules rather than
+     guessing again). Killing the transition outright is fine: every state
+     this column can be in in mobile is already pinned to the same
+     0px 1fr 0px, so there's nothing worth animating between. */
+  .pI_x6G_frame {
+    grid-template-columns: 0px 1fr 0px !important;
+    transition: none !important;
+  }
+
+  /* Turning off .pI_x6G_frame's own grid-template-columns transition above
+     stopped the *outer* column width from animating, but the drawer still
+     visibly opened in two stages after that fix shipped — a real phone
+     confirmed it, ruling out this being another stale-cache false alarm.
+     The actual second layer: dsh's sidebar component (SidebarRoot.module.css)
+     runs its rail-to-full-width switch as a separate keyframe animation, not
+     a transition — a temporary .hHd-Xa_railIn class it adds makes the icon
+     button, "new session" button, and the session-list region animate in
+     from `opacity: 0; transform: translate(49px)`. An earlier fix here tried
+     to stop this by setting transition-property on every descendant, which
+     did nothing because animation and transition are independent CSS
+     mechanisms — limiting one never touches the other. dsh already ships the
+     exact selectors needed to kill this, gated behind
+     prefers-reduced-motion in its own stylesheet; reusing them unconditionally
+     (mobile shouldn't depend on the visited phone's OS-level motion setting)
+     is what actually stops the rail-width flash this time. */
+  .hHd-Xa_wide,
+  .hHd-Xa_fading > *,
+  .hHd-Xa_railIn .hHd-Xa_iconButton,
+  .hHd-Xa_railIn .hHd-Xa_newSession,
+  .hHd-Xa_railIn .hHd-Xa_footArea,
+  .hHd-Xa_railIn .hHd-Xa_regionArea {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  /* Resting position (fully open or fully closed, nothing actively
+     dragging) is expressed with `left`, not `transform: translateX` —
+     the drag gesture in mobile.js still uses transform while a finger is
+     actually moving, for the reflow-free performance that's the whole
+     reason transform exists, but hands off to `left` the instant the
+     finger lifts (see mobile.js's own comment on setDragPosition for the
+     handoff mechanics). Both properties describe the same positions
+     (0 = open, -width = closed); which one is live at any moment is what
+     changed, not the numbers themselves.
+
+     The reason `left` has to be the one used at rest at all: any element
+     with a non-`none` transform becomes the containing block for every
+     `position: fixed` descendant it has, per spec, and the settings
+     dialog trigger (and the dialog's own portal-free markup) live inside
+     .pI_x6G_sidebarCol in dsh's own DOM. A transform sitting at "identity
+     matrix" (translateX(0), visually no offset but still a real,
+     non-none value) whenever the drawer was left open resolved the
+     dialog's `position: fixed; inset: 0` against the *sidebar's* box
+     instead of the viewport — capped to the drawer's ~307px width
+     instead of the full phone, which is what read as the settings panel
+     being wedged inside the sidebar with the rest of the app visible
+     around it (see the 2026-08-16 chat). Confirmed live: swapping to
+     `left` at rest brought the dialog immediately back to the full
+     375px. Leaving the drag gesture on transform throughout, and only
+     switching once it's actually at rest, was what a follow-up report of
+     the whole page feeling sluggish while dragging turned out to need —
+     `left` reflows on every touchmove tick it drives, transform doesn't,
+     and a drag fires touchmove far more often than the drawer settles. */
+  .pI_x6G_sidebarCol {
+    position: fixed !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    left: calc(-1 * min(82vw, 320px)) !important;
+    width: min(82vw, 320px) !important;
+    /* No explicit height — top:0 + bottom:0 on a fixed element already
+       fills the visual viewport. An earlier version also set height:100%,
+       which on iOS Safari resolves against the *layout* viewport (the
+       larger one that includes the area the collapsing address bar can
+       occupy), not the visual one — that mismatch is what left the drawer
+       cut off top and bottom on a real phone instead of running edge to
+       edge. */
+    z-index: 100 !important;
+    transition: left 0.25s ease;
+    /* Rounds only the trailing edge (away from the screen edge it's flush
+       against) rather than all four corners — this side is flush against
+       the left edge of the screen, so a corner there would just look cut
+       off. No shadow to go with it: see the box-shadow: none rule further
+       down for why. */
+    margin: 0 !important;
+    border-radius: 0 20px 20px 0 !important;
+    box-sizing: border-box !important;
+    /* Clear the notch/status-bar and home-indicator safe areas instead of
+       drawing under them. */
+    padding-top: env(safe-area-inset-top) !important;
+    padding-bottom: env(safe-area-inset-bottom) !important;
+  }
+  .pI_x6G_sidebarCol.ds-mobile-drawer-open {
+    left: 0 !important;
+  }
+
+  /* dsh's own collapse/expand toggle button — mobile.js's ensureDshExpanded
+     clicks this itself to correct [data-sidebar-collapsed] back whenever
+     dsh sets it, but a real tap on it would do the same thing in reverse,
+     fighting that correction and briefly re-triggering the very rail
+     animations this file works to keep off. Hidden, not removed: a hidden
+     button can still be found and .click()'d by mobile.js. */
+  .hHd-Xa_toggle {
+    display: none !important;
+  }
+
+  /* theme.css gives the sidebar a 5-layer all-around shadow + 1px outline
+     (body[data-ds-dark-theme]/body:not(...) [class*="sidebarCol"], both
+     !important) built for the desktop card, which is rounded on all four
+     corners and floats clear of every edge — wrapped around a drawer
+     that's actually square on the left and flush against the screen edge,
+     it read as the top and bottom having a different, disconnected shadow
+     from the right side no matter how this file's own version of the
+     shadow was tuned (see the 2026-08-16 chat's repeated attempts at
+     getting the three segments to look continuous). Turned off outright
+     rather than replaced. Matching that rule's selector specificity
+     exactly (element + attribute + class) and relying on this file
+     loading after theme.css to win the tiebreak is what actually
+     overrides it, rather than stacking underneath it. */
+  body[data-ds-dark-theme] .pI_x6G_sidebarCol,
+  body:not([data-ds-dark-theme]) .pI_x6G_sidebarCol {
+    box-shadow: none !important;
+  }
+
+  /* The session list's own scroll container (.qDHVXG_list, overflow-y:
+     auto) draws a real scrollbar track down its right edge on a real
+     phone — a persistent visual bar, not the thin fade-in/fade-out
+     indicator most native apps use, since dsh never themed this one the
+     way it did a couple of other scrollable panels elsewhere (compare
+     TrajectoryTable.module.css's own .Y0dWHa_detailTabs::-webkit-scrollbar
+     { display: none }, which reaches the same conclusion this rule does).
+     Hiding the scrollbar doesn't touch overflow-y: auto above it — the
+     list still scrolls exactly the same, just without a visible track. */
+  .qDHVXG_list {
+    scrollbar-width: none !important;
+  }
+  .qDHVXG_list::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  /* Taking sidebarCol out of grid flow (position: fixed, above) has a side
+     effect: CSS Grid's auto-placement skips out-of-flow items entirely when
+     numbering tracks for the *remaining* auto-placed children, so without
+     this, centerCol and detailsCol silently shift down one track each and
+     swap widths with each other — verified live against the real DOM before
+     landing this (see the 2026-08-15 brainstorming session). Pinning both
+     to their original track numbers keeps them where grid-template-columns
+     actually intends them, regardless of what's in or out of flow. */
+  .pI_x6G_centerCol {
+    grid-column: 2 !important;
+  }
+  .pI_x6G_detailsCol {
+    grid-column: 3 !important;
+  }
+
+  /* Trim the conversation header down to just the title — the thinking-mode
+     pill (.wSkVaW_headerActions) and the utilities cluster (Session log
+     export, .wSkVaW_headerUtilities) are desktop conveniences that just
+     crowd a header this narrow. */
+  .wSkVaW_headerActions,
+  .wSkVaW_headerUtilities {
+    display: none !important;
+  }
+
+  /* iOS Safari's own long-press-on-text behavior (selection highlight +
+     magnifier + Copy/Look Up callout) was firing at the same time as
+     mobile.js's long-press-for-menu logic, competing for the same
+     gesture — the "some unrelated text shows up instead of a menu" report
+     was that native selection UI winning the race. Turning it off here is
+     the standard fix; the row's own long-press handling takes it from
+     there uncontested. */
+  /* -webkit-tap-highlight-color: the grey highlight box the browser draws
+     on a touched element normally clears itself once the browser sees the
+     touch resolve into a real click. mobile.js's long-press ends with a
+     *synthesized* click on .YDXeBa_rowActions's button rather than one the
+     browser generated itself from this same touch, which is what left the
+     row's own highlight stuck showing over its title after release
+     instead of clearing (see the 2026-08-16 chat) — turning the highlight
+     off outright avoids depending on that browser bookkeeping at all. */
+  .YDXeBa_sessionRow {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Pressed feedback while a finger is actually resting on a row — mobile.js
+     adds this class on touchstart and clears it the instant the finger
+     moves past a scroll-vs-hold tolerance, releases, or the touch is
+     cancelled, so it never lingers after the finger lifts the way the
+     native tap-highlight this file turns off above used to.
+
+     Not a background color, even a distinct one: this row already carries
+     a background whenever it's the *selected* session
+     (.YDXeBa_sessionRow.YDXeBa_selected, styled by dsh's own stylesheet),
+     and tapping a row typically makes it the selected one right as the
+     finger lifts. Any background-color choice here reads as "the same
+     highlight, still on" in that handoff — swapping -hover for a visibly
+     stronger -active token (tried first) was still too close a shade to
+     tell apart on a real phone (see the 2026-08-16 chat: a screenshot of
+     the selected row next to a just-released row looked identical). A
+     transform sidesteps the ambiguity entirely: scaling has nothing to do
+     with the selected row's own background, so the two can never be
+     confused for each other regardless of what color that background is. */
+  .YDXeBa_sessionRow.ds-mobile-row-pressed {
+    transform: scale(0.97);
+    transition: transform 0.1s ease;
+  }
+
+  /* 对话/轨迹 tab switcher only earns its keep with more than one real
+     destination — on mobile there's just the conversation, so the tab
+     strip itself is dead chrome. Hiding it doesn't touch which panel is
+     active, only the switcher UI. */
+  .wSkVaW_tabs {
+    display: none !important;
+  }
+
+  /* The rename/delete "…" button (.YDXeBa_rowActions) is display:none by
+     default and only shows on :hover — desktop-only, since a session row
+     is never actually hovered on a touch screen. What touch devices do
+     instead is simulate a one-shot hover on the *first* tap (to let
+     hover-revealed UI work at all), which is what silently ate the row's
+     first tap: it just revealed this button, and only the second tap
+     actually landed as a real click on the row. Hiding it outright — via
+     visibility, not display, so it keeps its layout box for the
+     mobile.js long-press handler below to find and .click() — removes the
+     thing eating that first tap, and long-press is the replacement path
+     to the same rename/delete menu. */
+  .YDXeBa_rowActions {
+    visibility: hidden !important;
+  }
+  .YDXeBa_rowActions button {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Pre-existing rough edge, not introduced by this file: the details
+     panel's own close button isn't width-guarded by its 0px-when-collapsed
+     column, so on any screen narrow enough to bring the panel flush with
+     the edge it sits stray in the corner with nothing to close. */
+  [data-details-collapsed='true'] .ydkMvW_close {
+    display: none !important;
+  }
+
+  /* The brand mark (deepseek glyph + "HARNESS" badge) is one indivisible
+     SVG — see the injected note in the chat about why it can't be split.
+     Scaling the whole mark down buys back header width without touching
+     dsh's markup. */
+  .hHd-Xa_brand {
+    transform: scale(0.8);
+    transform-origin: left center;
+  }
+
+  /* Per-turn debug stats (round/step count, LLM/tool timing) under the
+     composer — desktop debugging chrome with no reader on a phone. */
+  .FJxK0a_root {
+    display: none !important;
+  }
+
+  /* ── Composer overflow fix ─────────────────────────────────────────
+     _7KE1Ra_trigger (the model-select button) has a content-driven width
+     that never got a mobile constraint, so at narrow widths it overflows
+     its flex row (uV2eYG_row) past the screen edge instead of shrinking —
+     that's the model name overlapping the send button in the screenshot.
+     Flex children default to min-width:auto, which blocks shrinking below
+     content size; min-width:0 down the chain lets the row actually
+     constrain them, and the ellipsis keeps the truncated label legible. */
+  .uV2eYG_row,
+  .uV2eYG_trailing,
+  ._7KE1Ra_root,
+  ._7KE1Ra_trigger {
+    min-width: 0 !important;
+  }
+  ._7KE1Ra_trigger {
+    max-width: 42vw !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  /* ── Settings dialog: a half-width drawer, like the sidebar ─────────
+     Two earlier attempts here both missed what was actually being asked
+     for. First one just widened the content column but left the dialog
+     centered over a visible, dimmed backdrop — the sidebar and chat
+     stayed visible (and tappable) around its edges. Second one went full
+     width instead — but full-*screen* was never the request; "make it
+     match the sidebar" meant the sidebar's actual width (a partial-width
+     drawer flush against the left edge), not edge-to-edge. This is that:
+     same min(82vw, 320px) sizing and left-flush placement as
+     .pI_x6G_sidebarCol, justify-content: flex-start on the overlay
+     instead of center so the drawer sits at the edge instead of
+     floating in the middle of empty space. */
+  .VOzbGW_overlay {
+    padding: 0 !important;
+    justify-content: flex-start !important;
+  }
+  /* Grid, not flex-column: .VOzbGW_nav and .VOzbGW_content are sibling
+     children of .VOzbGW_panel, and .VOzbGW_header (the 打开配置文件 /
+     close button row) is nested a level deeper inside .VOzbGW_content —
+     two different branches of the tree that flex alone can't put on one
+     visual row. display: contents on .VOzbGW_content dissolves that
+     wrapper from layout entirely, so its own children (.VOzbGW_header,
+     .VOzbGW_options) become direct grid items of .VOzbGW_panel right
+     alongside .VOzbGW_nav, and can be placed onto whatever grid
+     row/column each one actually belongs on. Row 1 holds the tab strip
+     and the header's buttons side by side; row 2 is the actual settings
+     content, spanning full width underneath both. */
+  .VOzbGW_panel {
+    display: grid !important;
+    grid-template-columns: 1fr auto !important;
+    grid-template-rows: auto 1fr !important;
+    align-items: center !important;
+    width: min(82vw, 320px) !important;
+    height: 100dvh !important;
+    max-width: min(82vw, 320px) !important;
+    max-height: 100dvh !important;
+    border-radius: 0 20px 20px 0 !important;
+  }
+  .VOzbGW_nav {
+    grid-row: 1 !important;
+    grid-column: 1 !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 6px !important;
+    padding: 10px 4px 10px 12px !important;
+    overflow-x: auto !important;
+  }
+  /* The "设置" heading that used to sit above the vertical nav list has
+     nowhere left to go once the nav is a horizontal tab row sharing its
+     line with the header buttons — dropping it costs nothing dsh's own
+     header (打开配置文件 / close) doesn't already say by being visibly a
+     settings panel. */
+  .VOzbGW_navTitle {
+    display: none !important;
+  }
+  .VOzbGW_navList {
+    flex-direction: row !important;
+    gap: 6px !important;
+  }
+  /* Generic hide hook for cases mobile.js has to match by text content —
+     .VOzbGW_navCell is shared by all four settings tabs, so which one is
+     模型 or Agent 预设 can't be reached with a plain CSS selector. Not
+     specific to settings: reusable anywhere else a future rule needs the
+     same "found it in JS, hide it here" handoff. */
+  .ds-mobile-hide {
+    display: none !important;
+  }
+  .VOzbGW_navCell {
+    flex: 0 0 auto !important;
+    height: 36px !important;
+    padding: 6px 10px !important;
+    white-space: nowrap !important;
+  }
+  .VOzbGW_navLabel {
+    font-size: 12px !important;
+  }
+  .VOzbGW_content {
+    display: contents !important;
+  }
+  .VOzbGW_header {
+    grid-row: 1 !important;
+    grid-column: 2 !important;
+    height: auto !important;
+    padding: 10px 12px 10px 4px !important;
+    align-items: center !important;
+  }
+  .VOzbGW_options {
+    grid-row: 2 !important;
+    grid-column: 1 / -1 !important;
+  }
+
+  /* 权限 row (default permission-mode picker inside 通用设置) — every
+     option it opens onto is one dsh itself may refuse depending on how
+     this deployment is sandboxed, which is a developer-facing distinction
+     the picker doesn't explain and a phone session isn't the place to be
+     guessing at. Gone outright rather than fixed: nothing else on this
+     row is broken, there's just no version of "why is this one greyed
+     out" worth explaining in a mobile settings screen. */
+  .oY77xG_row {
+    display: none !important;
+  }
+
+  /* Agent 预设 dropdown: dsh's own workspace-picker menu (same [role=menu]
+     component, just populated with project names instead of presets)
+     runs about 218px wide with no per-item description at all — that's
+     the reference this is matched to, rather than trying to shrink a
+     description down to something that still fits. Descriptions
+     (.cubgiG_itemDesc) are dropped completely rather than clamped this
+     time: a single clamped line (an earlier version of this rule) still
+     left the list far wider and taller than a plain name-only picker
+     needs to be. :has() scopes the width change to just this menu — every
+     dropdown in dsh shares the same [role="menu"] list component, so an
+     unscoped width rule here would just as easily have clipped the model
+     picker's longer names. */
+  .cubgiG_itemDesc {
+    display: none !important;
+  }
+  [role='menu']:has(.cubgiG_item) {
+    width: auto !important;
+    max-width: 220px !important;
+  }
+}

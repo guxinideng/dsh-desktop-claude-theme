@@ -9,3 +9,4 @@ build/AppIcon.iconset/
 .codebase-memory/
 *.log
 .DS_Store
+.superpowers/
