@@ -22,6 +22,24 @@ https://github.com/deepseek-ai/deepseek-harness
 The **personal** build (`npm run build:personal`) does not bundle dsh at
 all — it expects you to already have it installed and running.
 
+The **Windows** build (`npm run build:windows`) doesn't bundle dsh either
+— it bundles npm itself (see below) and fetches `@deepseek-ai/dsh@latest`
+from the npm registry on first launch instead.
+
+## npm
+
+The **Windows** build bundles a copy of npm, fetched from the npm registry
+at build time by `scripts/vendor-npm.sh`, used only to install
+`@deepseek-ai/dsh` on first launch. It is not vendored into this git
+repository.
+
+```
+npm
+Copyright (c) npm, Inc. and Contributors
+Licensed under the Artistic License 2.0
+https://github.com/npm/cli
+```
+
 ## Fonts (`fonts/`)
 
 Both fonts are licensed under the SIL Open Font License 1.1, which
