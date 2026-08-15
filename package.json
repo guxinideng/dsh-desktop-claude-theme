@@ -8,11 +8,15 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "gateway": "node remote-gateway.js",
     "vendor-dsh": "bash scripts/vendor-dsh.sh",
     "vendor-npm": "bash scripts/vendor-npm.sh",
     "build:personal": "electron-builder --config electron-builder.personal.yml",
     "build:public": "npm run vendor-dsh && electron-builder --config electron-builder.public.yml",
     "build:windows": "npm run vendor-npm && electron-builder --config electron-builder.windows.yml --win"
+  },
+  "dependencies": {
+    "http-proxy": "^1.18.1"
   },
   "devDependencies": {
     "electron": "^43.2.0",
