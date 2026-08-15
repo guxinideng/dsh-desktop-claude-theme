@@ -19,6 +19,7 @@ const TRACE_COLLAPSE_JS = fs.readFileSync(path.join(__dirname, 'trace-collapse.j
 const TRACE_TRANSLATE_JS = fs.readFileSync(path.join(__dirname, 'trace-translate.js'), 'utf8');
 const FONT_PICKER_JS = fs.readFileSync(path.join(__dirname, 'font-picker.js'), 'utf8');
 const FILE_PICKER_JS = fs.readFileSync(path.join(__dirname, 'file-picker.js'), 'utf8');
+const APPROVAL_HOTKEY_JS = fs.readFileSync(path.join(__dirname, 'approval-hotkey.js'), 'utf8');
 
 // Shown immediately on launch, before dsh is confirmed reachable — spawning
 // the Windows build's own copy (see installLatestDsh below) means a real
@@ -285,6 +286,7 @@ function createWindow() {
     win.webContents.executeJavaScript(TRACE_TRANSLATE_JS);
     win.webContents.executeJavaScript(FONT_PICKER_JS);
     win.webContents.executeJavaScript(FILE_PICKER_JS);
+    win.webContents.executeJavaScript(APPROVAL_HOTKEY_JS);
   };
   win.webContents.on('dom-ready', applyTheme);
   win.webContents.on('did-navigate-in-page', applyTheme);

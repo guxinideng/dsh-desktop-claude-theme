@@ -12,6 +12,7 @@ files:
   - trace-translate.js
   - font-picker.js
   - file-picker.js
+  - approval-hotkey.js
   - preload.js
   - fonts/**/*
   - package.json
