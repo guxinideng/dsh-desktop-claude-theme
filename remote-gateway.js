@@ -305,6 +305,62 @@ border-radius:999px;padding:12px 36px;font-size:15px;-webkit-appearance:none;cur
 </body></html>`;
 }
 
+// Cold-start waking page: shown instead of blocking the request for up to
+// 30s inside ensureDshReady(). A blank tab with no browser chrome (no
+// progress bar, no address bar) gives no sign anything is happening during
+// that wait — this gives feedback immediately, then polls in the
+// background and reloads once dsh answers. Marked with the
+// data-ds-waking-page attribute the poll below checks for: once a poll
+// response no longer carries it, dsh is up and this reloads for real.
+function renderWakingPage() {
+  return `<!doctype html>
+<html data-ds-waking-page="1"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>正在唤醒</title></head>
+<body style="margin:0;min-height:100dvh;display:flex;align-items:center;justify-content:center;
+background:#FAF9F5;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;
+padding:24px;padding-top:calc(24px + env(safe-area-inset-top));
+padding-bottom:calc(24px + env(safe-area-inset-bottom));box-sizing:border-box;">
+<div style="max-width:300px;text-align:center;">
+<div style="width:28px;height:28px;margin:0 auto 16px;border-radius:999px;border:3px solid #EDE9DF;
+border-top-color:#28241f;animation:ds-wake-spin 0.9s linear infinite;"></div>
+<div id="ds-wake-status" style="font-size:15px;color:#28241f;line-height:1.6;margin-bottom:6px;">正在唤醒 dsh…</div>
+<div style="font-size:13px;color:#8a8574;line-height:1.6;">通常 10-30 秒内完成,好了会自动跳转</div>
+<button id="ds-wake-retry" onclick="location.reload()" style="display:none;margin-top:20px;
+background:#28241f;color:#fff;border:none;border-radius:999px;padding:12px 36px;font-size:15px;
+-webkit-appearance:none;cursor:pointer;">重试</button>
+</div>
+<style>@keyframes ds-wake-spin{to{transform:rotate(360deg)}}</style>
+<script>
+(function () {
+  var attempts = 0;
+  var maxAttempts = 20; // 20 * 1.5s = 30s, matching the gateway's own startup budget
+  function poll() {
+    attempts++;
+    fetch(location.pathname + location.search, { cache: 'no-store' })
+      .then(function (res) { return res.text(); })
+      .then(function (text) {
+        if (text.indexOf('data-ds-waking-page') === -1) {
+          location.reload();
+          return;
+        }
+        if (attempts >= maxAttempts) {
+          document.getElementById('ds-wake-status').textContent = '还没准备好';
+          document.getElementById('ds-wake-retry').style.display = 'inline-block';
+        } else {
+          setTimeout(poll, 1500);
+        }
+      })
+      .catch(function () {
+        if (attempts < maxAttempts) setTimeout(poll, 1500);
+      });
+  }
+  setTimeout(poll, 1500);
+})();
+</script>
+</body></html>`;
+}
+
 // changeOrigin is deliberately left off: dsh's own /api browser-trust fence
 // requires the Host header it sees to match the browser's Origin (see
 // @deepseek-ai/dsh-client-connection's isTrustedApiRequest) — rewriting Host
@@ -466,6 +522,25 @@ const requestHandler = async (req, res) => {
   if (pathname === '/__ds_theme/stt' && req.method === 'POST') {
     touch();
     await handleStt(req, res);
+    return;
+  }
+
+  // Cold-start waking page: only for top-level navigations (what the
+  // phone's home-screen icon opens) — API calls, WebSocket upgrades, and
+  // asset requests must never get this page, they need dsh's own response
+  // (or the existing timeout/error handling below) to behave correctly.
+  // A quick 500ms probe decides whether dsh is already up; if not, this
+  // returns immediately instead of blocking on the full 30s
+  // ensureDshReady() wait, and kicks that off in the background (not
+  // awaited — its rejection is caught and ignored here; the page's own
+  // poll, see renderWakingPage, is what surfaces eventual failure to the
+  // user) so dsh is warming up while the page checks back every 1.5s.
+  const isNavigation = pathname === '/' && req.method === 'GET' && (req.headers.accept || '').includes('text/html');
+  if (isNavigation && !(await pingDsh(500))) {
+    touch();
+    ensureDshReady().catch(() => {});
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(renderWakingPage());
     return;
   }
 
