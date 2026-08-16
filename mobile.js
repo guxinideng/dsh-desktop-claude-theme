@@ -31,6 +31,15 @@
   const MOBILE_BREAKPOINT = 640;
   const DRAWER_OPEN_CLASS = 'ds-mobile-drawer-open';
 
+  // Run immediately (this script sits at the end of </body>, so body
+  // exists): mobile is pinned to light mode, and stripping the dark flag
+  // here — before the first paint can settle on dsh's dark palette —
+  // stops the "闪一下深色再变浅色" flash on phones whose OS/appearance
+  // is dark (the 2s poll below keeps it light against re-sets).
+  if (window.innerWidth <= MOBILE_BREAKPOINT && document.body) {
+    document.body.removeAttribute('data-ds-dark-theme');
+  }
+
   function isMobile() {
     return window.innerWidth <= MOBILE_BREAKPOINT;
   }
@@ -1185,6 +1194,12 @@
   // hold (start recording). ~150ms is roughly how long a normal tap
   // lasts; 200ms gives a little slack without making holds feel laggy.
   const VOICE_HOLD_THRESHOLD_MS = 200;
+  // Slide up by this much while recording and releasing discards the
+  // clip instead of transcribing it — same convention as most chat
+  // apps' voice messages ("说一半不想说了/说错了想重说"). Distance, not
+  // a specific direction of small jitter, so an ordinary unsteady hold
+  // doesn't accidentally arm it.
+  const VOICE_CANCEL_DISTANCE_PX = 60;
 
   let voiceStream = null;
   let voiceRecorder = null;
@@ -1193,6 +1208,8 @@
   let voiceReleaseRequested = false;
   let voiceHoldTimer = null;
   let voiceHoldArmed = false;
+  let voiceTouchStartY = 0;
+  let voiceCancelArmed = false;
 
   function getComposerGrow() {
     return document.querySelector('.uV2eYG_grow');
@@ -1439,6 +1456,32 @@
     recorder.stop();
   }
 
+  // Same shutdown as stopVoiceRecording (release the mic, walk back a
+  // still-pending permission request) but the recorder's own 'stop'
+  // handler never builds a blob or uploads — the whole point is that a
+  // slide-up release discards the clip.
+  function cancelVoiceRecording(overlay) {
+    voiceCancelArmed = false;
+    overlay.classList.remove('ds-mobile-voice-cancel-armed');
+    if (!voiceRecorder) {
+      voiceReleaseRequested = true;
+      if (overlay.classList.contains('ds-mobile-voice-recording')) {
+        setVoiceState(overlay, null);
+      }
+      return;
+    }
+    const recorder = voiceRecorder;
+    voiceRecorder = null;
+    recorder.addEventListener('stop', () => {
+      if (voiceStream) {
+        voiceStream.getTracks().forEach((track) => track.stop());
+        voiceStream = null;
+      }
+      setVoiceState(overlay, null);
+    });
+    recorder.stop();
+  }
+
   async function uploadVoiceRecording(blob, overlay) {
     setVoiceState(overlay, 'ds-mobile-voice-busy');
     const controller = new AbortController();
@@ -1488,9 +1531,11 @@
     overlay.dataset.dsBound = '1';
     overlay.addEventListener(
       'touchstart',
-      () => {
+      (event) => {
         if (isVoiceMidFlow(overlay)) return;
         voiceHoldArmed = false;
+        voiceCancelArmed = false;
+        voiceTouchStartY = event.touches[0].clientY;
         clearTimeout(voiceHoldTimer);
         voiceHoldTimer = setTimeout(() => {
           voiceHoldTimer = null;
@@ -1505,6 +1550,24 @@
       },
       { passive: true }
     );
+    // Only meaningful once a hold is armed (mid-recording) — during the
+    // tap-detection window a small drift shouldn't do anything, and once
+    // idle/busy/done/error there's no active gesture to redirect.
+    overlay.addEventListener(
+      'touchmove',
+      (event) => {
+        if (!voiceHoldArmed) return;
+        const deltaY = event.touches[0].clientY - voiceTouchStartY;
+        const shouldArm = deltaY < -VOICE_CANCEL_DISTANCE_PX;
+        if (shouldArm === voiceCancelArmed) return;
+        voiceCancelArmed = shouldArm;
+        overlay.classList.toggle('ds-mobile-voice-cancel-armed', shouldArm);
+        if (shouldArm) {
+          overlay.querySelector('.ds-mobile-voice-text').textContent = '松开取消';
+        }
+      },
+      { passive: true }
+    );
     overlay.addEventListener('touchend', (event) => {
       if (voiceHoldTimer) {
         // Released before the hold threshold — a tap, not a hold.
@@ -1516,6 +1579,10 @@
       if (!voiceHoldArmed) return; // touchstart was ignored (isVoiceMidFlow) — nothing to stop
       voiceHoldArmed = false;
       event.preventDefault();
+      if (voiceCancelArmed) {
+        cancelVoiceRecording(overlay);
+        return;
+      }
       // Unconditional — even if voiceRecorder is still null because
       // getUserMedia's permission prompt hasn't resolved yet, this needs
       // to reach stopVoiceRecording so it can set voiceReleaseRequested
