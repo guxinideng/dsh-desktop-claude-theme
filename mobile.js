@@ -117,6 +117,22 @@
     if (activeIsHidden && generalTab) generalTab.click();
   }
 
+  // The 通用设置 page's own "Agent 预设" row (default-preset picker that
+  // picks what new sessions start with) is a desktop-authoring concept
+  // with no place in a phone session — and its selector duplicates the
+  // Agent 预设 tab that's already hidden above. Matched by title text
+  // rather than class name: unlike the nav tabs (which share one class
+  // across all four), every settings row carries its own per-row hash
+  // prefix, so text is the only stable handle across dsh versions.
+  function hideSettingsAgentPresetRow() {
+    document.querySelectorAll('.VOzbGW_options [class$="_row"]').forEach((row) => {
+      const title = row.querySelector('[class$="_title"]');
+      if (title && title.textContent.trim() === 'Agent 预设') {
+        row.classList.add('ds-mobile-hide');
+      }
+    });
+  }
+
   // Composer model-select button: dsh's own label is "DeepSeek-V4-Flash"
   // — the DeepSeek prefix is redundant here specifically (this whole
   // theme only exists for DeepSeek's own build of dsh, so every model in
@@ -161,9 +177,125 @@
     ensureDshExpanded();
     observeDshCollapseState();
     hideDisabledSettingsNavTabs();
+    hideSettingsAgentPresetRow();
     stripDeepSeekPrefix();
     observeModelLabel();
+    syncTrajectoryTabStrip();
+    relocateContextRing();
   }
+
+  // The 对话/轨迹 tab strip is hidden on mobile (mobile.css), but dsh can
+  // still navigate into the trajectory view from inside a conversation (a
+  // tool-call row, the details panel) — and once there, the hidden strip
+  // leaves no way back to the conversation. Re-show the strip
+  // (ds-mobile-tabs-visible, styled in mobile.css) whenever the active tab
+  // is 轨迹 so it can be tapped back; drop it again once 对话 is active.
+  function syncTrajectoryTabStrip() {
+    const tabs = document.querySelector('.wSkVaW_tabs');
+    if (!tabs) return;
+    const active = tabs.querySelector('.wSkVaW_tabActive');
+    const onTrajectory = active && /轨迹/.test(active.textContent || '');
+    tabs.classList.toggle('ds-mobile-tabs-visible', !!onTrajectory);
+  }
+
+  // ── Context-usage ring moved to the header row (2026-08-16) ────────
+  // The context-progress circle (JObwrW) lives at the right end of the
+  // composer row, crowding the model trigger on narrow screens. The user
+  // wants it beside the conversation title instead. Move the whole
+  // JObwrW_root (the trigger button AND its popup panel — the panel
+  // positions relative to the root, so moving only the trigger left the
+  // percentage detail popping up back at the composer row, user report).
+  // mobile.css positions the root absolutely at the header's right edge
+  // and flips the panel to open downward so it stays on screen.
+  // dsh's re-renders restore the original tree, so the poll re-applies
+  // the move (same pattern as the other relocations).
+  function relocateContextRing() {
+    const root = document.querySelector('.JObwrW_root');
+    if (!root) return;
+    const titleRow = document.querySelector('.wSkVaW_titleRow');
+    if (!titleRow) return;
+    if (root.parentElement === titleRow) return;
+    titleRow.appendChild(root);
+  }
+
+  // ── "+" command menu: Chinese labels + 添加文件 entry ───────────────
+  // The menu dsh opens from + lists actions in English (compact / export /
+  // feedback / goal / permission / plan / model). Phone users asked for
+  // short Chinese labels with a one-line description so each entry's
+  // purpose is obvious, plus an 添加文件 entry at the bottom. The menu is
+  // mounted per open, so translate/append fresh each time.
+  const COMMAND_TRANSLATIONS = {
+    compact: { name: '压缩', desc: '压缩旧会话，释放上下文' },
+    export: { name: '导出', desc: '导出当前会话' },
+    feedback: { name: '反馈', desc: '提交使用反馈' },
+    goal: { name: '目标', desc: '查看或设置目标' },
+    permission: { name: '权限', desc: '切换本会话权限模式' },
+    plan: { name: '计划', desc: '进入或退出计划模式' },
+    model: { name: '模型', desc: '选择本会话使用的模型' },
+  };
+
+  function translateCommandMenu() {
+    document.querySelectorAll('._3e4SsG_item').forEach((item) => {
+      const nameEl = item.querySelector('._3e4SsG_itemName');
+      if (!nameEl || nameEl.dataset.dsTranslated) return;
+      const t = COMMAND_TRANSLATIONS[nameEl.textContent.trim()];
+      if (!t) return;
+      nameEl.dataset.dsTranslated = '1';
+      nameEl.textContent = t.name;
+      const descEl = item.querySelector('._3e4SsG_itemDescription');
+      if (descEl) descEl.textContent = t.desc;
+    });
+  }
+
+  function ensureAddFileEntry() {
+    const first = document.querySelector('._3e4SsG_item');
+    if (!first) return;
+    const menu = first.parentElement;
+    if (!menu || menu.querySelector('.ds-mobile-add-file')) return;
+    const item = document.createElement('div');
+    item.className = '_3e4SsG_item ds-mobile-add-file';
+    const name = document.createElement('span');
+    name.className = '_3e4SsG_itemName';
+    name.textContent = '添加文件';
+    const desc = document.createElement('span');
+    desc.className = '_3e4SsG_itemDescription';
+    desc.textContent = '从手机选择文件';
+    item.appendChild(name);
+    item.appendChild(desc);
+    item.addEventListener('click', () => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      input.style.display = 'none';
+      document.body.appendChild(input);
+      input.onchange = () => {
+        const count = input.files ? input.files.length : 0;
+        if (count > 0 && window.alert) window.alert(`已选择 ${count} 个文件`);
+        input.remove();
+      };
+      input.click();
+    });
+    menu.appendChild(item);
+  }
+
+  // Tapping + opens the command menu — dsh focuses the composer right
+  // after, popping the keyboard for what is a menu interaction (user
+  // report). Feed the same navigation-lock timestamp the keyboard
+  // suppression below reads: the input goes readonly for the lock window,
+  // so the focus cannot summon the keyboard, and a real tap on the input
+  // still lifts the lock immediately.
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (!isMobile() || !event.target.closest('.uV2eYG_add')) return;
+      lastSessionNavAt = Date.now();
+      setTimeout(() => {
+        translateCommandMenu();
+        ensureAddFileEntry();
+      }, 80);
+    },
+    true
+  );
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
@@ -175,24 +307,190 @@
     ensureDshExpanded();
     observeDshCollapseState();
     hideDisabledSettingsNavTabs();
+    hideSettingsAgentPresetRow();
+    syncSettingsPanelHeight();
     stripDeepSeekPrefix();
     observeModelLabel();
+    syncTrajectoryTabStrip();
+    relocateContextRing();
   }, 2000);
 
   // Settings dialog is a portal mounted fresh each time its trigger is
   // tapped, so the 2s poll above could leave the 模型/Agent 预设 tabs
-  // visible for up to 2s right after opening — catching the trigger tap
-  // itself and re-checking shortly after (dialog needs a moment to
-  // mount) closes that gap without lowering the poll interval everywhere
-  // else that doesn't need it.
+  // (and the 通用设置 page's Agent 预设 row) visible for up to 2s right
+  // after opening — catching the trigger tap itself and re-checking
+  // shortly after (dialog needs a moment to mount) closes that gap
+  // without lowering the poll interval everywhere else that doesn't need
+  // it.
   document.addEventListener(
     'click',
     (event) => {
       if (!isMobile() || !event.target.closest('.VOzbGW_trigger')) return;
-      setTimeout(hideDisabledSettingsNavTabs, 50);
+      setTimeout(() => {
+        hideDisabledSettingsNavTabs();
+        hideSettingsAgentPresetRow();
+        syncSettingsPanelHeight();
+      }, 50);
     },
     true
   );
+
+  // ── Settings dialog as the second drawer level ──────────────────────
+  // The sidebar is level one (swipe/blank-tap to close, back to the main
+  // page); dsh's settings dialog — its own portal component mounted fresh
+  // on every open — is level two on top of it: swipe left on the panel or
+  // tap the empty area to its right and settings closes back to the
+  // sidebar, which itself remains open. The close button is hidden in
+  // mobile.css, so the only way left to unwind dsh's own portal state is
+  // to replay a click on that same hidden button — the identical pattern
+  // ensureDshExpanded uses for the sidebar's hidden toggle button above.
+  function settingsPanelEl() {
+    return document.querySelector('.VOzbGW_panel');
+  }
+  function settingsOpen() {
+    return !!settingsPanelEl();
+  }
+
+  // Dismiss the settings level with the same slide-out the sidebar uses:
+  // animate the panel left off-screen (0.25s ease, matching the sidebar's
+  // own close), then replay a click on dsh's hidden close button to let
+  // its portal state unwind. The flag guards against double-dismissal
+  // (a blank tap racing the swipe-release settle). The panel is unmounted
+  // by dsh once the click lands, so the next open remounts it fresh and
+  // replays the CSS slide-in.
+  function closeSettings() {
+    const panel = settingsPanelEl();
+    if (!panel || panel.dataset.dsClosing) return;
+    panel.dataset.dsClosing = '1';
+    panel.style.animation = 'none';
+    panel.style.transition = 'transform 0.25s ease';
+    panel.style.transform = 'translateX(-100%)';
+    setTimeout(() => {
+      const btn = document.querySelector('.VOzbGW_close');
+      if (btn) btn.click();
+      delete panel.dataset.dsClosing;
+    }, 250);
+  }
+
+  // The settings panel and the sidebar are level one / level two of the
+  // same drawer stack, so they must be the same size — and "same size"
+  // means matching whatever dsh's own sidebar stylesheet actually renders
+  // (on a 390px viewport that's 796px tall, 16px short of the viewport,
+  // because dsh leaves the sidebar a hair short of edge-to-edge). Reading
+  // the sidebar's live height instead of hardcoding it keeps the two in
+  // lockstep even if dsh changes that value.
+  function syncSettingsPanelHeight() {
+    const panel = settingsPanelEl();
+    const sidebar = document.querySelector('.pI_x6G_sidebarCol');
+    if (!panel || !sidebar) return;
+    const h = sidebar.getBoundingClientRect().height;
+    if (h > 0) panel.style.setProperty('height', `${h}px`, 'important');
+  }
+
+  // The panel is a portal mounted fresh on every open — the 50ms
+  // trigger-timeout and the 2s poll can both miss the first paint, leaving
+  // the panel at its CSS default (100dvh, edge-to-edge) beside the shorter
+  // sidebar for a visible beat (the size mismatch the user keeps seeing).
+  // Watching the DOM for the portal mount syncs the height the instant the
+  // panel exists, before anything can paint it out of step. The callback
+  // is throttled through requestAnimationFrame: the observer fires on
+  // every subtree change (dsh re-renders constantly while the panel is
+  // open), and getBoundingClientRect inside it forces a synchronous
+  // layout — batching the work to one pass per frame keeps a busy re-render
+  // from turning into a layout thrash on every mutation.
+  let panelHeightSyncFrame = null;
+  const panelHeightObserver = new MutationObserver(() => {
+    if (panelHeightSyncFrame) return;
+    panelHeightSyncFrame = requestAnimationFrame(() => {
+      panelHeightSyncFrame = null;
+      if (isMobile()) syncSettingsPanelHeight();
+    });
+  });
+  panelHeightObserver.observe(document.body, { childList: true, subtree: true });
+
+  // Left-swipe to dismiss the settings panel, tracking the finger 1:1 the
+  // same way the sidebar's own drag does: the panel follows the finger
+  // while it moves (transform, reflow-free), and release commits to either
+  // fully closed (slide-out via closeSettings) or fully back to open.
+  // 15% of the panel width (~48px on a 320px panel), not the sidebar's
+  // own 28%: the settings panel is a lightweight second level meant to be
+  // flicked away, and a full sidebar-strength drag on it read as the
+  // threshold being too high (user report, 2026-08-16). The axis lock
+  // keeps vertical scrolls inside the options list untouched.
+  //
+  // Implemented with pointer events, not touch: the panel carries
+  // touch-action: pan-y (mobile.css), so the browser owns vertical
+  // panning and horizontal movement is ours — which means these listeners
+  // can all stay passive. A touch-based drag needed a non-passive
+  // touchmove to preventDefault the horizontal pan, and that listener sat
+  // on document, forcing the compositor to wait on JS for *every* scroll
+  // frame whether or not the drag engaged (the jank source). With passive
+  // pointer listeners and touch-action declaring the split up front, a
+  // vertical scroll never blocks on this code.
+  const SETTINGS_DRAG_COMMIT_FRACTION = 0.15;
+  const SETTINGS_DRAG_AXIS_LOCK_PX = 6;
+  let settingsDragStartX = null;
+  let settingsDragStartY = null;
+  let settingsDragAxis = null; // null | 'x' | 'y'
+  let settingsDragWidth = 0;
+  let settingsDragX = 0;
+
+  document.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (!isMobile() || !event.isPrimary) return;
+      const panel = settingsPanelEl();
+      if (!panel || panel.dataset.dsClosing) return;
+      if (!event.target.closest('.VOzbGW_panel')) return;
+      settingsDragStartX = event.clientX;
+      settingsDragStartY = event.clientY;
+      settingsDragAxis = null;
+      settingsDragWidth = panel.getBoundingClientRect().width || 0;
+      settingsDragX = 0;
+      panel.style.animation = 'none'; // a touch interrupts the slide-in
+      panel.style.transition = 'none';
+    },
+    { passive: true }
+  );
+
+  document.addEventListener(
+    'pointermove',
+    (event) => {
+      if (!isMobile() || settingsDragStartX === null) return;
+      const panel = settingsPanelEl();
+      if (!panel) return;
+      const dx = event.clientX - settingsDragStartX;
+      const dy = event.clientY - settingsDragStartY;
+      if (settingsDragAxis === null) {
+        if (Math.abs(dx) < SETTINGS_DRAG_AXIS_LOCK_PX && Math.abs(dy) < SETTINGS_DRAG_AXIS_LOCK_PX) return;
+        settingsDragAxis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+      }
+      if (settingsDragAxis !== 'x') return;
+      settingsDragX = Math.max(-settingsDragWidth, Math.min(0, dx));
+      panel.style.transform = `translateX(${settingsDragX}px)`;
+    },
+    { passive: true }
+  );
+
+  function settleSettingsDrag() {
+    if (settingsDragStartX === null) return;
+    settingsDragStartX = null;
+    settingsDragStartY = null;
+    const wasHorizontal = settingsDragAxis === 'x';
+    settingsDragAxis = null;
+    const panel = settingsPanelEl();
+    if (!panel || !wasHorizontal || settingsDragWidth === 0) return;
+    const openness = 1 + settingsDragX / settingsDragWidth;
+    if (openness < 1 - SETTINGS_DRAG_COMMIT_FRACTION) {
+      closeSettings(); // slides out from wherever the finger let go
+    } else {
+      panel.style.transition = 'transform 0.25s ease';
+      panel.style.transform = 'translateX(0)';
+    }
+  }
+
+  document.addEventListener('pointerup', settleSettingsDrag, { passive: true });
+  document.addEventListener('pointercancel', settleSettingsDrag, { passive: true });
 
   // Tapping the dimmed main content used to close the drawer via a click
   // listener on a visible backdrop element; the backdrop itself is gone
@@ -200,12 +498,61 @@
   // unwanted extra chrome, not a helpful dimming cue), but tapping outside
   // the drawer to close it is still the expected gesture, so this keeps
   // that behavior without anything visible backing it.
+  //
+  // The settings dialog (below) is a second level on top of the sidebar:
+  // settings closes back to the sidebar, and only then does a blank tap
+  // reach the sidebar's own close. While settings is open, any tap outside
+  // its panel dismisses settings only — never the sidebar underneath.
   document.addEventListener(
     'click',
     (event) => {
-      if (!isMobile() || !isSidebarOpen()) return;
+      if (!isMobile()) return;
+      if (settingsOpen()) {
+        if (!event.target.closest('.VOzbGW_panel')) {
+          // dsh's own mask layer carries onClick={onClose} — without
+          // stopping propagation here (capture phase, before React's
+          // delegated listener at the root), dsh unmounts the portal the
+          // instant this handler's closeSettings starts its slide-out
+          // animation, so the panel just vanished (user report). Kill the
+          // event so only the animated path below runs.
+          event.preventDefault();
+          event.stopPropagation();
+          closeSettings();
+        }
+        return;
+      }
+      if (!isSidebarOpen()) return;
       if (event.target.closest('.pI_x6G_sidebarCol')) return;
       closeSidebar();
+    },
+    true
+  );
+
+  // ── Workspace picker: the menu can overlap its trigger ──────────────
+  // dsh's workspace picker opens in a menu positioned a few px below its
+  // trigger (.pXSMma_workspace). On a phone the gap is small enough that
+  // real layouts land the menu ON the button — measured 4px of clearance
+  // in one viewport, and any safe-area/scroll drift can close it — so the
+  // second tap hits the menu, not the button, and the picker never toggles
+  // closed; only tapping another workspace or outside dismisses it (user
+  // report). Intercepting a touch on the button's rectangle while a menu
+  // is open and replaying the button's own click closes it
+  // deterministically: pointerdown's preventDefault suppresses the
+  // browser's synthetic click, so dsh's toggle runs exactly once (ours),
+  // and the case where the button was cleanly visible behaves identically
+  // to dsh's own handler.
+  document.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (!isMobile()) return;
+      if (!document.querySelector('[role="menu"]')) return;
+      const btn = document.querySelector('.pXSMma_workspace');
+      if (!btn) return;
+      const r = btn.getBoundingClientRect();
+      if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) return;
+      event.preventDefault();
+      event.stopPropagation();
+      btn.click();
     },
     true
   );
@@ -216,6 +563,10 @@
   // matching what plain in-app navigation would do. An earlier version
   // only matched .YDXeBa_sessionRow, so the main content did navigate on
   // "新会话" but the drawer itself was left sitting open over it.
+  // lastSessionNavAt feeds the keyboard-suppression lock further down
+  // (dsh auto-focuses the composer on navigation, which would otherwise
+  // pop the on-screen keyboard on a phone).
+  let lastSessionNavAt = 0;
   document.addEventListener(
     'click',
     (event) => {
@@ -223,6 +574,7 @@
       const row = event.target.closest('.YDXeBa_sessionRow');
       const newSessionBtn = event.target.closest('.hHd-Xa_newSession');
       if (!row && !newSessionBtn) return;
+      lastSessionNavAt = Date.now();
       // A tap that landed on a row's own "…" actions button isn't a
       // navigation — it's opening the rename/delete menu (long-press
       // below also synthesizes a click on this same button). Closing the
@@ -508,9 +860,15 @@
   }
 
   document.addEventListener(
-    'touchstart',
+    'pointerdown',
     (event) => {
-      if (!isMobile() || event.touches.length !== 1) return;
+      if (!isMobile() || !event.isPrimary) return;
+      // While the settings dialog is up, its panel sits in front of the
+      // sidebar (portal on top of the overlay) — a swipe that starts on
+      // the panel's blank areas must not also prime a sidebar drag behind
+      // it, or a left-swipe to dismiss settings would drag (invisibly)
+      // and possibly commit the sidebar closed underneath as well.
+      if (settingsOpen()) return;
       // A touch starting inside the session list used to be excluded
       // entirely here, on the theory that a mostly-vertical scroll could
       // occasionally lean horizontal enough in its first few px to
@@ -543,9 +901,8 @@
       // still just as draggable from the row's own padding, the header,
       // the footer, or any other blank space in the sidebar.
       if (event.target.closest('button, a, [role="button"], [role="menuitem"]')) return;
-      const touch = event.touches[0];
-      dragStartX = touch.clientX;
-      dragStartY = touch.clientY;
+      dragStartX = event.clientX;
+      dragStartY = event.clientY;
       dragAxis = null;
       dragHapticFired = false;
       const el = drawerEl();
@@ -556,23 +913,22 @@
     { passive: true }
   );
 
-  // Not passive: once a drag is confirmed horizontal, its native scroll/pan
-  // needs suppressing for the rest of the gesture (see the long comment
-  // this used to carry, now above setDragTransform) — touch-action: pan-y
-  // in mobile.css declares the same thing up front, this is the enforcement.
+  // Passive pointermove: the drawer carries touch-action: pan-y
+  // (mobile.css), so the browser owns vertical panning and horizontal
+  // movement never reaches it as a native pan — no preventDefault is
+  // needed and no non-passive listener blocks scroll frames (the jank
+  // source when this used touch events and preventDefaulted).
   document.addEventListener(
-    'touchmove',
+    'pointermove',
     (event) => {
       if (!isMobile() || dragStartX === null || dragWidth === 0) return;
-      const touch = event.touches[0];
-      const dx = touch.clientX - dragStartX;
-      const dy = touch.clientY - dragStartY;
+      const dx = event.clientX - dragStartX;
+      const dy = event.clientY - dragStartY;
       if (dragAxis === null) {
         if (Math.abs(dx) < DRAG_AXIS_LOCK_PX && Math.abs(dy) < DRAG_AXIS_LOCK_PX) return;
         dragAxis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
       }
       if (dragAxis !== 'x') return;
-      event.preventDefault();
 
       dragCurrentX = Math.max(-dragWidth, Math.min(0, dragBaseX + dx));
       setDragTransform(dragCurrentX);
@@ -587,45 +943,44 @@
         if (navigator.vibrate) navigator.vibrate(5);
       }
     },
-    { passive: false }
-  );
-
-  document.addEventListener(
-    'touchend',
-    () => {
-      if (dragStartX === null) return;
-      const wasDragging = dragAxis === 'x';
-      dragStartX = null;
-      dragStartY = null;
-      dragAxis = null;
-      if (!wasDragging || dragWidth === 0) return;
-
-      // Freeze the drawer at exactly where the live drag (transform) left
-      // it, now expressed as `left` instead — see settleAt's own comment
-      // for why this has to happen before either class-toggle function
-      // below, not after.
-      settleAt(dragCurrentX);
-
-      const openness = 1 + dragCurrentX / dragWidth;
-      const shouldOpen = wouldCommitOpen(openness);
-      // mobile.css's own `left` transition on .pI_x6G_sidebarCol carries
-      // the rest of the way from wherever the drag let go to fully open
-      // or fully closed — a one-shot, browser-driven transition rather
-      // than something this file drives frame by frame, so it doesn't
-      // carry anywhere near the reflow cost the live drag itself would
-      // have at that same frequency.
-      if (shouldOpen) openSidebar();
-      else closeSidebar();
-      // settleAt's freeze is still holding `left` with !important at this
-      // point — the class above changed, but can't visibly do anything
-      // yet, since an inline !important always outranks one on a class
-      // selector too. Releasing it now, with transition already back on
-      // from settleAt, is what actually hands control to the class's own
-      // !important rule and lets the browser animate to it.
-      drawerEl()?.style.removeProperty('left');
-    },
     { passive: true }
   );
+
+  function settleSidebarDrag() {
+    if (dragStartX === null) return;
+    const wasDragging = dragAxis === 'x';
+    dragStartX = null;
+    dragStartY = null;
+    dragAxis = null;
+    if (!wasDragging || dragWidth === 0) return;
+
+    // Freeze the drawer at exactly where the live drag (transform) left
+    // it, now expressed as `left` instead — see settleAt's own comment
+    // for why this has to happen before either class-toggle function
+    // below, not after.
+    settleAt(dragCurrentX);
+
+    const openness = 1 + dragCurrentX / dragWidth;
+    const shouldOpen = wouldCommitOpen(openness);
+    // mobile.css's own `left` transition on .pI_x6G_sidebarCol carries
+    // the rest of the way from wherever the drag let go to fully open
+    // or fully closed — a one-shot, browser-driven transition rather
+    // than something this file drives frame by frame, so it doesn't
+    // carry anywhere near the reflow cost the live drag itself would
+    // have at that same frequency.
+    if (shouldOpen) openSidebar();
+    else closeSidebar();
+    // settleAt's freeze is still holding `left` with !important at this
+    // point — the class above changed, but can't visibly do anything
+    // yet, since an inline !important always outranks one on a class
+    // selector too. Releasing it now, with transition already back on
+    // from settleAt, is what actually hands control to the class's own
+    // !important rule and lets the browser animate to it.
+    drawerEl()?.style.removeProperty('left');
+  }
+
+  document.addEventListener('pointerup', settleSidebarDrag, { passive: true });
+  document.addEventListener('pointercancel', settleSidebarDrag, { passive: true });
 
   // dsh focuses the composer whenever a session becomes active — sensible
   // with a keyboard attached, but on a phone it pops the on-screen keyboard
@@ -645,17 +1000,26 @@
   // depend on the event firing at all, only on activeElement being
   // correct, which every engine guarantees — so it catches this regardless
   // of which explanation turns out to be right.
-  let composerTouched = false;
-  let composerTouchedResetTimer = null;
+  // Keyboard suppression: dsh focuses the composer whenever a session
+  // becomes active — sensible with a hardware keyboard, but on a phone it
+  // pops the on-screen keyboard up right after every navigation, before
+  // there's any reason to type. Earlier versions blurred the input, but
+  // dsh's own re-render can refocus it right back (and the focus event
+  // itself doesn't reliably arrive in every environment), leaving the
+  // keyboard up anyway. The lock instead leans on a property that can't
+  // be raced: for KEYBOARD_LOCK_MS after a navigation, the composer stays
+  // readonly, and a readonly textarea never summons the iOS keyboard no
+  // matter how often it gets focused. The instant the user actually taps
+  // the composer, the lock is dropped so the keyboard comes up normally.
+  const KEYBOARD_LOCK_MS = 1500;
   document.addEventListener(
     'touchstart',
     (event) => {
-      if (!event.target.closest('.uV2eYG_input')) return;
-      composerTouched = true;
-      clearTimeout(composerTouchedResetTimer);
-      composerTouchedResetTimer = setTimeout(() => {
-        composerTouched = false;
-      }, 500);
+      const input = event.target.closest('.uV2eYG_input');
+      if (!input) return;
+      // The user wants to type — lift the navigation lock right now.
+      lastSessionNavAt = 0;
+      input.readOnly = false;
     },
     true
   );
@@ -663,17 +1027,251 @@
     'focus',
     (event) => {
       if (!isMobile()) return;
-      if (event.target.classList && event.target.classList.contains('uV2eYG_input') && !composerTouched) {
-        event.target.blur();
+      const el = event.target;
+      if (!el.classList || !el.classList.contains('uV2eYG_input')) return;
+      if (Date.now() - lastSessionNavAt < KEYBOARD_LOCK_MS) {
+        el.readOnly = true;
+        el.blur();
       }
     },
     true
   );
   setInterval(() => {
-    if (!isMobile() || composerTouched) return;
-    const active = document.activeElement;
-    if (active && active.classList && active.classList.contains('uV2eYG_input')) {
-      active.blur();
+    if (!isMobile()) return;
+    const input = document.querySelector('.uV2eYG_input');
+    if (!input) return;
+    const inLock = Date.now() - lastSessionNavAt < KEYBOARD_LOCK_MS;
+    if (inLock) {
+      // Re-assert every tick: dsh may replace the textarea or reset its
+      // properties on re-render, and the readonly is what actually keeps
+      // the keyboard off — blur alone lost this race before.
+      if (!input.readOnly) input.readOnly = true;
+      if (document.activeElement === input) input.blur();
+    } else if (input.readOnly) {
+      input.readOnly = false;
     }
   }, 150);
+
+  // ---------------------------------------------------------------------
+  // Voice-to-text composer input — an overlay pinned over the composer's
+  // real <textarea> (.uV2eYG_input, inside the already-relative
+  // .uV2eYG_grow). Press-and-hold the overlay to record, release to
+  // upload to the gateway's local whisper.cpp endpoint; the transcribed
+  // text fades into view on the overlay itself (while also being written
+  // into the real textarea underneath), then the overlay hides and hands
+  // control back to that textarea for the user to edit/send — never
+  // auto-sends. Re-appears once the send button is used (dsh clears the
+  // textarea on send), or on first load if the textarea starts empty.
+  // See docs/superpowers/specs/2026-08-16-voice-to-text-composer-design.md
+  // ---------------------------------------------------------------------
+
+  const VOICE_OVERLAY_CLASS = 'ds-mobile-voice-overlay';
+  const VOICE_STATE_CLASSES = [
+    'ds-mobile-voice-recording',
+    'ds-mobile-voice-busy',
+    'ds-mobile-voice-done',
+    'ds-mobile-voice-error',
+  ];
+  const VOICE_MIN_RECORDING_MS = 300;
+  const VOICE_WAVE_BAR_HEIGHTS = [7, 12, 16, 10, 14, 8, 15, 11];
+  const VOICE_DONE_DISPLAY_MS = 900;
+  const VOICE_ERROR_DISPLAY_MS = 1500;
+
+  let voiceStream = null;
+  let voiceRecorder = null;
+  let voiceChunks = [];
+  let voiceRecordingStartedAt = 0;
+
+  function getComposerGrow() {
+    return document.querySelector('.uV2eYG_grow');
+  }
+
+  function getVoiceComposerInput() {
+    return document.querySelector('.uV2eYG_input');
+  }
+
+  function getSendButton() {
+    return document.querySelector('.uV2eYG_primary');
+  }
+
+  function setVoiceState(overlay, state) {
+    overlay.classList.remove(...VOICE_STATE_CLASSES);
+    if (state) overlay.classList.add(state);
+  }
+
+  function isVoiceMidFlow(overlay) {
+    return VOICE_STATE_CLASSES.some((cls) => overlay.classList.contains(cls));
+  }
+
+  function showVoiceError(overlay, message) {
+    const textLayer = overlay.querySelector('.ds-mobile-voice-text');
+    textLayer.textContent = message;
+    setVoiceState(overlay, 'ds-mobile-voice-error');
+    setTimeout(() => {
+      setVoiceState(overlay, null);
+    }, VOICE_ERROR_DISPLAY_MS);
+  }
+
+  function applyVoiceAccentColor(overlay) {
+    const sendBtn = getSendButton();
+    if (!sendBtn) return;
+    const accent = getComputedStyle(sendBtn).backgroundColor;
+    if (accent) overlay.style.setProperty('--ds-voice-accent', accent);
+  }
+
+  function ensureVoiceOverlay() {
+    if (!isMobile()) return null;
+    const grow = getComposerGrow();
+    if (!grow) return null;
+    let overlay = grow.querySelector('.' + VOICE_OVERLAY_CLASS);
+    if (overlay) return overlay;
+
+    overlay = document.createElement('div');
+    overlay.className = VOICE_OVERLAY_CLASS;
+    overlay.setAttribute('role', 'button');
+    overlay.setAttribute('aria-label', '按住说话');
+
+    const wave = document.createElement('div');
+    wave.className = 'ds-mobile-voice-wave';
+    for (const h of VOICE_WAVE_BAR_HEIGHTS) {
+      const bar = document.createElement('span');
+      bar.style.height = h + 'px';
+      wave.appendChild(bar);
+    }
+    overlay.appendChild(wave);
+
+    const busyDots = document.createElement('div');
+    busyDots.className = 'ds-mobile-voice-busy-dots';
+    busyDots.textContent = '···';
+    overlay.appendChild(busyDots);
+
+    const textLayer = document.createElement('div');
+    textLayer.className = 'ds-mobile-voice-text';
+    overlay.appendChild(textLayer);
+
+    const input = getVoiceComposerInput();
+    if (input && input.value) overlay.classList.add('ds-mobile-voice-hidden');
+
+    grow.appendChild(overlay);
+    return overlay;
+  }
+
+  function fillComposerText(text) {
+    const input = getVoiceComposerInput();
+    if (!input || !text) return;
+    const existing = input.value || '';
+    const combined = existing ? existing + text : text;
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLTextAreaElement.prototype,
+      'value'
+    ).set;
+    nativeSetter.call(input, combined);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  async function startVoiceRecording(overlay) {
+    if (voiceRecorder) return;
+    applyVoiceAccentColor(overlay);
+    try {
+      voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      showVoiceError(overlay, '没有麦克风权限,请去设置里开启');
+      return;
+    }
+    voiceChunks = [];
+    voiceRecordingStartedAt = Date.now();
+    voiceRecorder = new MediaRecorder(voiceStream);
+    voiceRecorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) voiceChunks.push(event.data);
+    };
+    voiceRecorder.start();
+    setVoiceState(overlay, 'ds-mobile-voice-recording');
+  }
+
+  function stopVoiceRecording(overlay) {
+    if (!voiceRecorder) return;
+    const recordedMs = Date.now() - voiceRecordingStartedAt;
+    const recorder = voiceRecorder;
+    voiceRecorder = null;
+
+    recorder.addEventListener('stop', () => {
+      if (voiceStream) {
+        voiceStream.getTracks().forEach((track) => track.stop());
+        voiceStream = null;
+      }
+      if (recordedMs < VOICE_MIN_RECORDING_MS) {
+        setVoiceState(overlay, null);
+        return;
+      }
+      const blob = new Blob(voiceChunks, { type: recorder.mimeType });
+      uploadVoiceRecording(blob, overlay);
+    });
+    recorder.stop();
+  }
+
+  async function uploadVoiceRecording(blob, overlay) {
+    setVoiceState(overlay, 'ds-mobile-voice-busy');
+    try {
+      const res = await fetch('/__ds_theme/stt', { method: 'POST', body: blob });
+      const data = await res.json();
+      if (data && data.text) {
+        const textLayer = overlay.querySelector('.ds-mobile-voice-text');
+        textLayer.textContent = data.text;
+        setVoiceState(overlay, 'ds-mobile-voice-done');
+        fillComposerText(data.text);
+        setTimeout(() => {
+          overlay.classList.add('ds-mobile-voice-hidden');
+          setVoiceState(overlay, null);
+        }, VOICE_DONE_DISPLAY_MS);
+      } else {
+        showVoiceError(overlay, '没听清,再试一次');
+      }
+    } catch {
+      showVoiceError(overlay, '识别失败,请重试');
+    }
+  }
+
+  function recallVoiceOverlayAfterSend() {
+    const overlay = ensureVoiceOverlay();
+    if (!overlay || isVoiceMidFlow(overlay)) return;
+    overlay.classList.remove('ds-mobile-voice-hidden');
+    setVoiceState(overlay, null);
+  }
+
+  function bindVoiceOverlay() {
+    const overlay = ensureVoiceOverlay();
+    if (!overlay || overlay.dataset.dsBound) return;
+    overlay.dataset.dsBound = '1';
+    overlay.addEventListener(
+      'touchstart',
+      (event) => {
+        event.preventDefault();
+        startVoiceRecording(overlay);
+      },
+      { passive: false }
+    );
+    overlay.addEventListener(
+      'touchend',
+      (event) => {
+        event.preventDefault();
+        stopVoiceRecording(overlay);
+      },
+      { passive: false }
+    );
+  }
+
+  function bindSendButtonForVoiceRecall() {
+    const sendBtn = getSendButton();
+    if (!sendBtn || sendBtn.dataset.dsVoiceRecallBound) return;
+    sendBtn.dataset.dsVoiceRecallBound = '1';
+    sendBtn.addEventListener('click', () => {
+      setTimeout(recallVoiceOverlayAfterSend, 400);
+    });
+  }
+
+  setInterval(() => {
+    if (!isMobile()) return;
+    bindVoiceOverlay();
+    bindSendButtonForVoiceRecall();
+  }, 1000);
 })();
