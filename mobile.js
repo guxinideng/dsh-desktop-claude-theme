@@ -1335,10 +1335,6 @@
   // After this long in the wait panel, the status line switches to a
   // "longer clip" copy (whisper transcribes long recordings slowly).
   const VOICE_WAIT_RETEXT_MS = 8000;
-  // How long the green "已转写 ✓" confirmation stays before the overlay
-  // hides and the type-in animation takes over — long enough for the
-  // check pop (0.3s) + settle (0.34s) to read, short enough not to drag.
-  const VOICE_DONE_CONFIRM_MS = 600;
   // Below this, a touch is a tap (type manually); at or above, it's a
   // hold (start recording). ~150ms is roughly how long a normal tap
   // lasts; 200ms gives a little slack without making holds feel laggy.
@@ -1412,18 +1408,80 @@
     }, VOICE_ERROR_DISPLAY_MS);
   }
 
-  // Pin the fixed-position wait panel to the composer's current viewport
-  // rect (the composer sits at the bottom of the page, so the panel
-  // floats directly above it). Called once when the busy state starts —
-  // the user isn't scrolling mid-transcription, so a single pin is fine.
-  function positionVoicePanel(overlay) {
-    const panel = overlay.querySelector('.ds-voice-panel');
-    const grow = getComposerGrow();
-    if (!panel || !grow) return;
-    const rect = grow.getBoundingClientRect();
-    panel.style.left = rect.left + 'px';
-    panel.style.width = rect.width + 'px';
-    panel.style.top = rect.top - 112 + 'px'; // 104px panel + 8px gap
+  // Transcription wait panel — lives INSIDE the composer card (inserted
+  // before the input strip), so the card itself grows upward while the
+  // transcription runs and shrinks back when it lands: "输入框直接往上长,
+  // 下面都成一个整体" (the card's bottom edge is pinned to the page bottom,
+  // so extra height pushes the top edge up). No floating module, and no
+  // "已转写 ✓" confirmation — the type-in animation simply takes over.
+  // Visuals/timings borrowed from the bookkeeping app's processing sheet.
+  function getComposerCard() {
+    return document.querySelector('.uV2eYG_card');
+  }
+
+  function ensureVoiceWaitPanel() {
+    const card = getComposerCard();
+    if (!card) return null;
+    let panel = card.querySelector('.ds-voice-wait-panel');
+    if (panel) return panel;
+    panel = document.createElement('div');
+    panel.className = 'ds-voice-wait-panel';
+    const body = document.createElement('div');
+    body.className = 'ds-voice-wait-body';
+    const statusRow = document.createElement('div');
+    statusRow.className = 'ds-voice-status-row';
+    const shimmer = document.createElement('span');
+    shimmer.className = 'ds-voice-shimmer';
+    shimmer.textContent = '正在转写语音';
+    const dots = document.createElement('span');
+    dots.className = 'ds-voice-dots';
+    for (let i = 0; i < 3; i++) {
+      const dot = document.createElement('i');
+      dot.textContent = '.';
+      dots.appendChild(dot);
+    }
+    statusRow.appendChild(shimmer);
+    statusRow.appendChild(dots);
+    const track = document.createElement('div');
+    track.className = 'ds-voice-track';
+    const thumb = document.createElement('div');
+    thumb.className = 'ds-voice-thumb';
+    track.appendChild(thumb);
+    body.appendChild(statusRow);
+    body.appendChild(track);
+    panel.appendChild(body);
+    const scroll = card.querySelector('.uV2eYG_scroll');
+    card.insertBefore(panel, scroll);
+    // While the panel is visible it must swallow taps: the composer
+    // card itself carries a click handler (onRequestWorkspace on the
+    // hero), and a stray tap during transcription would otherwise open
+    // a picker under the user's finger.
+    ['touchstart', 'mousedown', 'click'].forEach((type) => {
+      panel.addEventListener(
+        type,
+        (event) => {
+          const overlay = ensureVoiceOverlay();
+          if (overlay && isVoiceMidFlow(overlay)) {
+            event.preventDefault();
+            event.stopPropagation();
+          }
+        },
+        true
+      );
+    });
+    return panel;
+  }
+
+  function setVoiceWaitVisible(visible) {
+    const card = getComposerCard();
+    if (!card) return;
+    card.classList.toggle('ds-voice-waiting', !!visible);
+  }
+
+  function setVoiceWaitLabel(label) {
+    const card = getComposerCard();
+    const shimmer = card && card.querySelector('.ds-voice-wait-panel .ds-voice-shimmer');
+    if (shimmer) shimmer.textContent = label;
   }
 
   function applyVoiceAccentColor(overlay) {
@@ -1522,47 +1580,6 @@
     busyDots.className = 'ds-mobile-voice-busy-dots';
     busyDots.textContent = '···';
     overlay.appendChild(busyDots);
-
-    // Wait panel (busy/done states): shimmering status row + jumping
-    // ellipsis + indeterminate progress bar, then a green "已转写 ✓"
-    // confirmation when the transcription lands. Visuals and timings
-    // borrowed from the bookkeeping app's processing sheet.
-    const panel = document.createElement('div');
-    panel.className = 'ds-voice-panel';
-    const statusRow = document.createElement('div');
-    statusRow.className = 'ds-voice-status-row';
-    const shimmer = document.createElement('span');
-    shimmer.className = 'ds-voice-shimmer';
-    shimmer.textContent = '正在转写语音';
-    const dots = document.createElement('span');
-    dots.className = 'ds-voice-dots';
-    for (let i = 0; i < 3; i++) {
-      const dot = document.createElement('i');
-      dot.textContent = '.';
-      dots.appendChild(dot);
-    }
-    statusRow.appendChild(shimmer);
-    statusRow.appendChild(dots);
-    const doneRow = document.createElement('div');
-    doneRow.className = 'ds-voice-done-row';
-    const check = document.createElement('span');
-    check.className = 'ds-voice-done-check';
-    check.innerHTML =
-      '<svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
-    const doneLabel = document.createElement('span');
-    doneLabel.className = 'ds-voice-done-label';
-    doneLabel.textContent = '已转写';
-    doneRow.appendChild(check);
-    doneRow.appendChild(doneLabel);
-    const track = document.createElement('div');
-    track.className = 'ds-voice-track';
-    const thumb = document.createElement('div');
-    thumb.className = 'ds-voice-thumb';
-    track.appendChild(thumb);
-    panel.appendChild(statusRow);
-    panel.appendChild(doneRow);
-    panel.appendChild(track);
-    overlay.appendChild(panel);
 
     const textLayer = document.createElement('div');
     textLayer.className = 'ds-mobile-voice-text';
@@ -1821,16 +1838,18 @@
 
   async function uploadVoiceRecording(blob, overlay) {
     setVoiceState(overlay, 'ds-mobile-voice-busy');
-    positionVoicePanel(overlay);
+    // The composer card grows a wait panel above the input strip for
+    // the duration of the transcription.
+    ensureVoiceWaitPanel();
+    setVoiceWaitVisible(true);
+    setVoiceWaitLabel('正在转写语音');
     // Wait-panel copy starts neutral; if whisper is taking a while (long
     // clips transcribe slower — the 60s budget exists for that), switch
     // to a longer-wait line so the panel reads as alive, not stuck. Time-
     // based, never fake progress.
-    const shimmer = overlay.querySelector('.ds-voice-shimmer');
-    if (shimmer) shimmer.textContent = '正在转写语音';
     clearTimeout(voiceWaitTimer);
     voiceWaitTimer = setTimeout(() => {
-      if (shimmer) shimmer.textContent = '音频较长，快好了…';
+      setVoiceWaitLabel('音频较长，快好了…');
     }, VOICE_WAIT_RETEXT_MS);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), VOICE_UPLOAD_TIMEOUT_MS);
@@ -1839,28 +1858,25 @@
       clearTimeout(timeoutId);
       const data = await res.json();
       if (data && data.text) {
-        // No more overlay preview: showing the raw transcription on the
-        // overlay and then swapping to the textarea 900ms later was the
-        // "出现一下→格式很奇怪→再变化" report (different type, single-line
-        // ellipsis vs the real input's wrap). The wait panel instead
-        // flips to a green "已转写 ✓" confirmation, then steps aside and
-        // types the cleaned text into the real input character by
-        // character, so the composer's text IS the final text the whole
-        // way through — nothing changes after the animation settles.
+        // The card shrinks back and the type-in animation takes over in
+        // the composer — no separate confirmation state (the user
+        // rejected the "已转写 ✓" step: the char-by-char reveal IS the
+        // feedback). The composer's text is the final text the whole
+        // way through; nothing changes after the animation settles.
         const text = cleanSttText(data.text);
         clearTimeout(voiceWaitTimer);
-        setVoiceState(overlay, 'ds-mobile-voice-done');
-        setTimeout(() => {
-          overlay.classList.add('ds-mobile-voice-hidden');
-          setVoiceState(overlay, null);
-          typeVoiceTextIntoComposer(text);
-        }, VOICE_DONE_CONFIRM_MS);
+        setVoiceWaitVisible(false);
+        overlay.classList.add('ds-mobile-voice-hidden');
+        setVoiceState(overlay, null);
+        typeVoiceTextIntoComposer(text);
       } else {
         clearTimeout(voiceWaitTimer);
+        setVoiceWaitVisible(false);
         showVoiceError(overlay, '没听清,再试一次');
       }
     } catch {
       clearTimeout(voiceWaitTimer);
+      setVoiceWaitVisible(false);
       clearTimeout(timeoutId);
       showVoiceError(overlay, '识别失败,请重试');
     }
@@ -1999,5 +2015,8 @@
     typeVoiceTextIntoComposer,
     abortVoiceTypingToFull,
     isVoiceTyping,
+    ensureVoiceWaitPanel,
+    setVoiceWaitVisible,
+    setVoiceWaitLabel,
   };
 })();

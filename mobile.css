@@ -999,47 +999,41 @@
    app's processing sheet ("等待面板文字动效") and it's a better wait —
    shimmering current-step text (1.8s gradient sweep), three jumping
    ellipsis dots (1.2s stagger), and an indeterminate progress bar
-   (sliding thumb) so something is always in motion. The overlay itself
-   stays a 28px strip over the composer; the panel floats ABOVE it
-   (grow is overflow:visible). Only transform/opacity animate — same
-   glass-panel rule as the bookkeeping app. */
-.ds-mobile-voice-overlay.ds-mobile-voice-busy,
-.ds-mobile-voice-overlay.ds-mobile-voice-done {
-  overflow: visible; /* let the panel extend above the strip */
+   (sliding thumb) so something is always in motion.
+   The panel lives INSIDE the composer card, above the input strip: the
+   card itself grows taller while transcription runs and shrinks back
+   when it lands — "输入框直接往上长, 下面都成一个整体" (verified: the card's
+   bottom edge is pinned to the page bottom, so it grows upward). No
+   floating module, no separate "已转写 ✓" confirmation — the type-in
+   animation simply takes over in the composer. */
+.uV2eYG_card.ds-voice-waiting .ds-voice-wait-panel {
+  max-height: 96px;
+  opacity: 1;
 }
-.ds-voice-panel {
-  /* fixed, not absolute: the composer's own scroll container
-     (overflow:auto, ~28px tall) clips anything that extends above the
-     strip, so an absolute panel was invisible in real rendering despite
-     being laid out (the "只有一层阴影" report). JS pins it to the
-     composer's viewport rect when the busy state starts. */
-  position: fixed;
-  z-index: 1000;
-  box-sizing: border-box;
-  height: 104px;
-  padding: 24px 22px 0;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.8);
-  -webkit-backdrop-filter: blur(22px);
-  backdrop-filter: blur(22px);
-  border: 1px solid rgba(255, 255, 255, 0.65);
-  box-shadow: 0 -10px 34px rgba(60, 60, 80, 0.12);
-  display: none;
+.ds-voice-wait-panel {
+  /* Inside the card's flow (inserted before the input strip), so the
+     card's own background/radius IS the panel's background — one
+     continuous piece. max-height/opacity animate the grow-up and the
+     shrink-back. The composer card is flex with a 12px gap, so even a
+     collapsed panel would keep a gap slot (12px of card left taller) —
+     margin-bottom: -12px cancels it while collapsed, 0 while expanded. */
+  min-height: 0;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  margin-bottom: -12px;
+  transition:
+    max-height 0.32s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.24s ease,
+    margin-bottom 0.32s cubic-bezier(0.32, 0.72, 0, 1);
 }
-.ds-mobile-voice-overlay.ds-mobile-voice-busy .ds-voice-panel,
-.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-voice-panel {
-  display: block;
-  animation: ds-voice-panel-in 0.26s cubic-bezier(0.32, 0.72, 0, 1);
+.uV2eYG_card.ds-voice-waiting .ds-voice-wait-panel {
+  margin-bottom: 0;
 }
-.ds-mobile-voice-overlay.ds-mobile-voice-error .ds-voice-panel {
-  display: none;
+.ds-voice-wait-body {
+  padding: 14px 22px 2px;
 }
-@keyframes ds-voice-panel-in {
-  from { opacity: 0; transform: translateY(12px) scale(0.985); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-.ds-voice-status-row,
-.ds-voice-done-row {
+.ds-voice-status-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1108,46 +1102,6 @@
 @keyframes ds-voice-thumb-slide {
   0% { transform: translateX(-110%); }
   100% { transform: translateX(400%); }
-}
-/* Transcription landed: status row hands over to a green "已转写 ✓"
-   confirmation (check pops, row settles in — same numbers as the
-   bookkeeping app), the progress bar steps aside. The overlay then
-   hides and the type-in animation takes over in the composer. */
-.ds-voice-done-row {
-  display: none;
-}
-.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-voice-status-row {
-  display: none;
-}
-.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-voice-done-row {
-  display: flex;
-  animation: ds-voice-done-settle 0.34s cubic-bezier(0.32, 0.72, 0, 1);
-}
-.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-voice-track {
-  display: none;
-}
-.ds-voice-done-check {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: #34c759;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: ds-voice-done-pop 0.3s ease;
-}
-.ds-voice-done-label {
-  font-size: 15px;
-  font-weight: 500;
-  color: rgba(40, 40, 50, 0.95);
-}
-@keyframes ds-voice-done-pop {
-  50% { transform: scale(1.3); }
-}
-@keyframes ds-voice-done-settle {
-  from { transform: translateY(10px) scale(1.12); transform-origin: left; opacity: 0.6; }
 }
 .ds-mobile-voice-overlay.ds-mobile-voice-busy .ds-mobile-voice-busy-dots,
 .ds-mobile-voice-overlay.ds-mobile-voice-done .ds-mobile-voice-busy-dots {
