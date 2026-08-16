@@ -201,7 +201,15 @@
        cut off top and bottom on a real phone instead of running edge to
        edge. */
     z-index: 100 !important;
-    transition: left var(--ds-dur-base) var(--ds-ease);
+    /* Deliberately NOT the --ds-ease token: this transition is the
+       drawer's post-drag settle path (mobile.js's settleAt hands off
+       from the live transform to `left`, then the class change animates
+       here). cubic-bezier(0.32,0.72,0,1) starts far too abruptly for
+       that — the first two frames cover ~39% of the travel vs ~15% for
+       ease, which reads as a visible flash right where the user's finger
+       just let go (the "一闪一闪" report after the token change). ease
+       keeps the settle visually continuous. */
+    transition: left 0.25s ease;
     /* Rounds only the trailing edge (away from the screen edge it's flush
        against) rather than all four corners — this side is flush against
        the left edge of the screen, so a corner there would just look cut
