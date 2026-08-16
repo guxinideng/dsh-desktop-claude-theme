@@ -300,21 +300,20 @@
     if (!isMobile()) return;
     const scroll = document.querySelector('.wSkVaW_scrollBody');
     if (!scroll) return;
-    // The 用时/首 token/tok/s stats are BARE TEXT NODES inside the
+    // The 用时/首 token/tok/s/deepdiving are BARE TEXT NODES inside the
     // actions row (MessageIconActions renders them as raw children of a
     // Fragment) — querySelectorAll over elements never sees them, which
     // is why every earlier trim "didn't work" on the phone. Walk TEXT
-    // nodes instead: any node mentioning 用时/首 token/tok/s is a stat —
-    // replaced with 'deepdiving' if it also carries that marker, emptied
-    // otherwise. The clock time and "·" separators are hidden by
-    // mobile.css ([class$='_timeStart'] etc). Never removes elements.
+    // nodes instead and empty every stat/marker node; the clock time
+    // lives in its own element (timeStart, kept visible by mobile.css),
+    // so it survives. Never removes elements.
     const walker = document.createTreeWalker(scroll, NodeFilter.SHOW_TEXT);
     const dead = [];
     let node;
     while ((node = walker.nextNode())) {
       const t = node.textContent || '';
-      if (!/用时|首 ?token|tok\/s|tokensPerSecond|ttft/.test(t)) continue;
-      node.textContent = /deep\s*diving|深度思考/i.test(t) ? 'deepdiving' : '';
+      if (!/用时|首 ?token|tok\/s|tokensPerSecond|ttft|deep\s*diving|深度思考/.test(t)) continue;
+      node.textContent = '';
     }
   }
 
@@ -955,6 +954,15 @@
   // in so both directions commit at the same 28%-of-width travel.
   const DRAG_COMMIT_FRACTION = 0.28;
   const DRAG_AXIS_LOCK_PX = 6; // movement needed before committing this gesture to horizontal vs. vertical
+  // Width of the strip along the screen's left edge where iOS Safari's
+  // swipe-to-go-back gesture (and Android Chrome's gesture-nav back)
+  // claims a touch that starts there. Roughly Apple's own edge-swipe
+  // zone. A swipe inside this strip is exactly the "swipe right to open
+  // the drawer" gesture users expect to work from the screen edge, so
+  // this file both lets the drag prime there (see the pointerdown
+  // exclusion bypass below) and actively kills the browser's competing
+  // back gesture (see edgeSwipeGuard).
+  const EDGE_SWIPE_ZONE_PX = 28;
   let dragStartX = null;
   let dragStartY = null;
   let dragAxis = null; // null (undecided) | 'x' | 'y'
@@ -962,6 +970,11 @@
   let dragBaseX = 0; // translateX at gesture start: 0 if starting open, -dragWidth if starting closed
   let dragCurrentX = 0;
   let dragHapticFired = false;
+  // True while a drag that *started inside the left-edge strip* is live.
+  // Only such a drag attaches the non-passive edgeSwipeGuard (below), so
+  // ordinary touches never pay the compositor's "wait for JS" tax a
+  // non-passive touchmove listener normally charges.
+  let dragFromEdge = false;
 
   function wouldCommitOpen(openness) {
     const startedOpen = dragBaseX === 0;
@@ -1067,7 +1080,20 @@
       // a drag to start from on top of a button anyway — the drawer is
       // still just as draggable from the row's own padding, the header,
       // the footer, or any other blank space in the sidebar.
-      if (event.target.closest('button, a, [role="button"], [role="menuitem"]')) return;
+      // The button/link exclusion below has one deliberate hole: a touch
+      // that starts in the left-edge strip (EDGE_SWIPE_ZONE_PX) while the
+      // drawer is closed. There, the strip of screen under the finger is
+      // the main content — the drawer itself is off-screen to the left —
+      // so the exclusion's only real job (don't let a tap on a sidebar
+      // button accidentally prime a drag) has nothing to protect, while
+      // applying it would silently eat the most common way people try to
+      // open the drawer: a swipe that begins against the screen's left
+      // edge, which often lands on the header or a message row's
+      // clickable bits first. Such a touch is allowed through to prime
+      // the drag (an actual tap still works: nothing below preventDefaults
+      // a tap, and settleSidebarDrag's axis-lock keeps it inert).
+      const atEdge = event.clientX <= EDGE_SWIPE_ZONE_PX && !isSidebarOpen();
+      if (event.target.closest('button, a, [role="button"], [role="menuitem"]') && !atEdge) return;
       dragStartX = event.clientX;
       dragStartY = event.clientY;
       dragAxis = null;
@@ -1076,6 +1102,8 @@
       dragWidth = el ? el.getBoundingClientRect().width : 0;
       dragBaseX = isSidebarOpen() ? 0 : -dragWidth;
       dragCurrentX = dragBaseX;
+      dragFromEdge = atEdge;
+      if (dragFromEdge) document.addEventListener('touchmove', edgeSwipeGuard, { passive: false });
     },
     { passive: true }
   );
@@ -1113,8 +1141,38 @@
     { passive: true }
   );
 
+  // Kills iOS Safari's swipe-to-go-back on a drag that started in the
+  // left-edge strip. touch-action: pan-y on body already tells the
+  // browser horizontal panning isn't its job, but the back gesture is a
+  // *navigation* gesture and doesn't consult touch-action — it engages on
+  // ~25px of rightward travel and, once engaged, fires pointercancel,
+  // aborting the drawer drag before the drawer has visibly moved (the
+  // "swiping right from the left edge won't open the drawer" report).
+  // preventDefault on the touchmove that first proves horizontal intent
+  // is the reliable kill switch: it lands before Safari's engagement
+  // threshold for any normal swipe, while a tap (no movement) and a
+  // vertical scroll (vertical movement dominates) are never touched —
+  // which is why this stays a touchmove guard rather than a touchstart
+  // preventDefault, which would also have killed vertical scrolling of
+  // the message list for any thumb that starts against the left edge.
+  // Attached only for edge-start drags (see the pointerdown above) so the
+  // compositor never waits on it for ordinary scrolls.
+  function edgeSwipeGuard(event) {
+    if (dragStartX === null || dragStartY === null) return;
+    const touch = event.touches[0];
+    if (!touch) return;
+    const dx = touch.clientX - dragStartX;
+    const dy = touch.clientY - dragStartY;
+    if (Math.abs(dx) < DRAG_AXIS_LOCK_PX && Math.abs(dy) < DRAG_AXIS_LOCK_PX) return;
+    if (Math.abs(dx) > Math.abs(dy)) event.preventDefault();
+  }
+
   function settleSidebarDrag() {
     if (dragStartX === null) return;
+    if (dragFromEdge) {
+      document.removeEventListener('touchmove', edgeSwipeGuard);
+      dragFromEdge = false;
+    }
     const wasDragging = dragAxis === 'x';
     dragStartX = null;
     dragStartY = null;

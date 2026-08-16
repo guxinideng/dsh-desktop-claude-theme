@@ -59,6 +59,14 @@
     overflow: hidden !important;
     width: 100% !important;
     height: 100dvh !important;
+    /* Belt-and-suspenders for the drawer's left-edge swipe (mobile.js's
+       edgeSwipeGuard is the real fix): on browsers where the edge
+       swipe-to-go-back gesture consults overscroll-behavior, telling
+       both axes "don't chain/overscroll" stops the page itself from
+       being dragged back instead of the drawer sliding out. Harmless
+       here either way — body is already overflow:hidden and never
+       scrolls; inner containers keep their own scroll. */
+    overscroll-behavior-x: none !important;
   }
 
   /* Declares the same intent mobile.js's touchmove handler enforces:
@@ -813,11 +821,11 @@
     max-width: calc(100vw - 24px) !important;
   }
 
-  /* Message footer stats (MessageIconActions row): hide the clock time
-     and the "·" separators by class; the 用时/首 token/tok/s bare text
-     nodes are emptied by mobile.js (CSS can't target bare text). The
-     copy/branch action buttons and any deepdiving marker stay. */
-  [class$='_timeStart'],
+  /* Message footer stats (MessageIconActions row): keep ONLY the clock
+     time (timeStart), hide the end clock and the "·" separators by
+     class; the 用时/首 token/tok/s/deepdiving bare text nodes are
+     emptied by mobile.js (CSS can't target bare text). The copy/branch
+     action buttons stay. */
   [class$='_timeEnd'],
   [class$='_runTimeDot'] {
     display: none !important;
