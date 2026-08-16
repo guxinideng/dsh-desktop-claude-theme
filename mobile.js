@@ -1285,6 +1285,40 @@
     }
   }, 150);
 
+  // ── Focus guard: no keyboard right after 发送 ─────────────────────
+  // dsh programmatically refocuses the composer after a send; on a phone
+  // that pops the keyboard the moment 发送 is tapped — and blurring a
+  // beat later only made it flash open-and-shut ("弹出来自己自动收回去
+  // 了"). A user tap produces a trusted focus event; dsh's focus()
+  // calls produce non-trusted ones, so within a short window after the
+  // send button is pressed every non-trusted focus on the composer is
+  // suppressed (unless our own tap-to-type path just allowed one via
+  // focusRealInputForTyping). The keyboard only ever appears when the
+  // user actually touches the composer — or when dsh focuses it outside
+  // the send window (command menu, model pickers, …), which those flows
+  // legitimately need.
+  const SEND_FOCUS_BLOCK_MS = 1500;
+  let lastSendAt = 0;
+  let allowNextProgrammaticFocus = false;
+  document.addEventListener(
+    'focus',
+    (event) => {
+      if (!isMobile()) return;
+      const el = event.target;
+      if (!el.classList || !el.classList.contains('uV2eYG_input')) return;
+      if (event.isTrusted) return; // real tap — let it through
+      if (allowNextProgrammaticFocus) {
+        allowNextProgrammaticFocus = false;
+        return;
+      }
+      if (Date.now() - lastSendAt < SEND_FOCUS_BLOCK_MS) {
+        event.preventDefault();
+        el.blur();
+      }
+    },
+    true
+  );
+
   // ---------------------------------------------------------------------
   // Voice-to-text composer input — an overlay pinned over the composer's
   // real <textarea> (.uV2eYG_input, inside the already-relative
@@ -1392,10 +1426,14 @@
   // the touchend handler, which is what lets .focus() actually trigger
   // the keyboard on iOS/Android (a focus() call outside a user-gesture
   // callback is silently ignored by mobile browsers).
+  // A tap on the overlay is the user's own "I want to type" gesture, so
+  // the programmatic focus() below is allowed past the focus guard
+  // (which otherwise kills every non-trusted focus — see the guard).
   function focusRealInputForTyping(overlay) {
     const input = getVoiceComposerInput();
     if (!input) return;
     overlay.classList.add('ds-mobile-voice-hidden');
+    allowNextProgrammaticFocus = true;
     input.focus();
   }
 
@@ -1971,16 +2009,12 @@
     if (!sendBtn || sendBtn.dataset.dsVoiceRecallBound) return;
     sendBtn.dataset.dsVoiceRecallBound = '1';
     sendBtn.addEventListener('click', () => {
-      setTimeout(() => {
-        // dsh refocuses the composer after a send; on a phone that
-        // summons the keyboard out of nowhere the moment 发送 is tapped
-        // (user report). Blur it — the overlay is back in its idle wave,
-        // and tapping the composer is the user's own next step when they
-        // actually want to type again.
-        const input = getVoiceComposerInput();
-        if (input && document.activeElement === input) input.blur();
-        recallVoiceOverlayAfterSend();
-      }, 400);
+      // dsh will refocus the composer after the send lands; the focus
+      // guard above blocks that (non-trusted focus) within the next
+      // SEND_FOCUS_BLOCK_MS, so the keyboard never appears. This just
+      // brings the overlay back to its idle wave.
+      lastSendAt = Date.now();
+      setTimeout(recallVoiceOverlayAfterSend, 400);
     });
   }
 
