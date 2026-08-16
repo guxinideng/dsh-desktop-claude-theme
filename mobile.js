@@ -1175,7 +1175,7 @@
     if (Math.abs(dx) > Math.abs(dy)) event.preventDefault();
   }
 
-  function settleSidebarDrag() {
+  function settleSidebarDrag(event) {
     if (dragStartX === null) return;
     if (dragFromEdge) {
       document.removeEventListener('touchmove', edgeSwipeGuard);
@@ -1194,7 +1194,19 @@
     settleAt(dragCurrentX);
 
     const openness = 1 + dragCurrentX / dragWidth;
-    const shouldOpen = wouldCommitOpen(openness);
+    // A pointercancel means the browser stole the gesture mid-drag —
+    // on iOS, a slow/diagonal swipe picks up enough vertical drift that
+    // the touch-action: pan-y scroll recognizer claims it and cancels
+    // the pointer while the finger is still down and still moving. The
+    // user is *mid-gesture*, not releasing, so the 28% commit threshold
+    // would snap the drawer back open under their finger ("还没松手它
+    // 自己回弹了"). Commit by direction instead: any travel toward the
+    // target side closes/opens it, matching what the finger was doing.
+    const cancelled = event && event.type === 'pointercancel';
+    const startedOpen = dragBaseX === 0;
+    const shouldOpen = cancelled
+      ? startedOpen ? dragCurrentX >= 0 : dragCurrentX < 0
+      : wouldCommitOpen(openness);
     // mobile.css's own `left` transition on .pI_x6G_sidebarCol carries
     // the rest of the way from wherever the drag let go to fully open
     // or fully closed — a one-shot, browser-driven transition rather
