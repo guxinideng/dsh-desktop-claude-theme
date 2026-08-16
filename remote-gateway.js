@@ -476,7 +476,22 @@ function serveThemedIndex(req, res) {
           // (manifest support came later and is more limited) — none of
           // these existed before, so a saved icon had no capable/title/
           // status-bar declarations to go on at all.
-          '<meta name="apple-mobile-web-app-capable" content="yes">\n' +
+          //
+          // theme-color: a full per-device launch-image set (the
+          // traditional apple-touch-startup-image approach) needs a
+          // separate PNG for every iPhone/iPad screen size and
+          // orientation — a couple dozen images generated and maintained
+          // for a cosmetic transition. Not doing that. What this gets
+          // for near-zero cost instead: iOS building its own transition
+          // out of the apple-touch-icon (already added above) centered
+          // on this color when there's no explicit launch image. Same
+          // #FAF9F5 as the skeleton and the rest of the app, so if it
+          // does render, it hands off to the skeleton without a visible
+          // seam. Whether iOS actually renders this couldn't be checked
+          // here — it only shows launching from a real home-screen icon,
+          // which needs a physical device.
+          '<meta name="theme-color" content="#FAF9F5">\n' +
+            '<meta name="apple-mobile-web-app-capable" content="yes">\n' +
             '<meta name="apple-mobile-web-app-status-bar-style" content="default">\n' +
             '<meta name="apple-mobile-web-app-title" content="DeepSeek">\n' +
             `<link rel="apple-touch-icon" href="/__ds_theme/apple-touch-icon.png?v=${themeStamp}">\n` +
@@ -557,6 +572,12 @@ function serveManifest(req, res) {
       try {
         const manifest = JSON.parse(body);
         if (manifest.display === 'fullscreen') manifest.display = 'standalone';
+        // Same #FAF9F5 as the theme-color meta tag in the injected index
+        // HTML and the first-paint skeleton — Android's manifest-driven
+        // splash (better-supported there than on iOS) uses these two
+        // fields for its own equivalent transition.
+        manifest.background_color = '#FAF9F5';
+        manifest.theme_color = '#FAF9F5';
         body = JSON.stringify(manifest, null, 2);
       } catch (err) {
         console.error('[gateway] manifest parse error:', err.message);
