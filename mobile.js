@@ -2016,6 +2016,22 @@
         // the post-send focus lock (readonly for SEND_FOCUS_BLOCK_MS)
         // and recalls the overlay to its idle wave.
         lastSendAt = Date.now();
+        // Flip readOnly here, in the capture phase, instead of leaving it
+        // to the focus listener and the 150ms poll further up. Capture
+        // runs before dsh's own click handler, so the textarea is already
+        // readonly by the time dsh does whatever it does to put focus back
+        // on the composer. That ordering is the whole game on iOS: the
+        // keyboard is raised at the moment focus lands on an editable
+        // field, and turning readonly on *after* focus has already landed
+        // does not put an open keyboard away again. All three earlier
+        // attempts armed the lock strictly after focus — first a delayed
+        // blur ("弹出来又自动收回"), then a focus-event guard, then this
+        // same readonly lock but set from the focus listener — which is
+        // consistent with the keyboard still appearing on a real phone
+        // while every Electron check passed. See
+        // docs/KEYBOARD-HANDOFF-2026-08-17.md for the full history.
+        const composer = getVoiceComposerInput();
+        if (composer) composer.readOnly = true;
         setTimeout(recallVoiceOverlayAfterSend, 400);
       },
       true
@@ -2113,5 +2129,46 @@
         true
       );
     });
+  })();
+
+  // On-screen viewer for the log above — Safari's Develop menu / cable +
+  // Mac setup is a lot to ask just to read some JSON. This is a small
+  // fixed corner button that, when tapped, shows the log as plain
+  // selectable/readable text right on the phone: reproduce the bug,
+  // tap the button, screenshot, done. Deliberately not styled to match
+  // the rest of the UI — this is throwaway diagnostic chrome, meant to
+  // be visually obvious as "not a real feature" and removed once the
+  // keyboard bug is fixed.
+  (function installKeyboardDebugViewer() {
+    if (!isMobile()) return;
+    const toggle = document.createElement('button');
+    toggle.textContent = '🐞';
+    toggle.setAttribute('aria-label', '查看键盘调试日志');
+    toggle.style.cssText =
+      'position:fixed;right:8px;bottom:8px;z-index:99999;width:36px;height:36px;' +
+      'border-radius:999px;border:1px solid rgba(0,0,0,0.2);background:rgba(255,255,255,0.85);' +
+      'font-size:18px;line-height:1;padding:0;';
+    const panel = document.createElement('div');
+    panel.style.cssText =
+      'position:fixed;inset:24px 8px;z-index:99998;display:none;background:#fff;' +
+      'border:1px solid #000;border-radius:8px;padding:10px;overflow:auto;' +
+      '-webkit-user-select:text;user-select:text;';
+    const pre = document.createElement('pre');
+    pre.style.cssText = 'white-space:pre-wrap;word-break:break-all;font-size:11px;color:#000;margin:0;';
+    panel.appendChild(pre);
+    let open = false;
+    toggle.addEventListener('click', () => {
+      open = !open;
+      if (open) {
+        pre.textContent = JSON.stringify(window.__dsKeyboardDebug.log, null, 1);
+        panel.style.display = 'block';
+        toggle.textContent = '✕';
+      } else {
+        panel.style.display = 'none';
+        toggle.textContent = '🐞';
+      }
+    });
+    document.body.appendChild(panel);
+    document.body.appendChild(toggle);
   })();
 })();
