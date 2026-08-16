@@ -18,6 +18,22 @@
     padding-top: 0 !important;
   }
 
+  /* First-paint light mode (2026-08-16): the phone view is pinned to
+     light (mobile.js strips the dark flag), but dsh's own theme script
+     can set data-ds-dark-theme before that JS runs, flashing a dark
+     first paint on OS-dark phones. These overrides load after theme.css
+     and win the cascade, so even if the dark flag is present at first
+     paint the page background is already light — no dark flash. Only the
+     background surfaces are covered; mobile.js removes the flag a tick
+     later and the rest of the palette snaps to light with it. */
+  body[data-ds-dark-theme] {
+    --dsw-alias-bg-base: rgb(250, 249, 245) !important;
+    --dsw-alias-bg-layer-1: rgb(238, 236, 225) !important;
+    --dsw-alias-bg-layer-2: rgb(255, 255, 255) !important;
+    --dsw-alias-bg-layer-3: rgb(240, 238, 228) !important;
+    --dsw-alias-bg-overlay: rgb(255, 255, 255) !important;
+  }
+
   /* viewport-fit=cover (injected by remote-gateway.js) extends the page
      behind the notch / Dynamic Island; dsh's header carries no safe-area
      padding of its own, so give it the top inset — otherwise the header
@@ -766,6 +782,15 @@
     position: relative !important;
     padding-right: 44px !important;
   }
+  /* Hide the context ring at its original composer-row spot: mobile.js
+     relocates the whole JObwrW_root into the title row, but until that
+     poll runs on first paint the ring rendered in the input row — a
+     visible flick from "in the input" to "beside the title" (user
+     report). Pinning the composer-row copy hidden means the only ring
+     that can ever show is the relocated one. */
+  .uV2eYG_row .JObwrW_root {
+    display: none !important;
+  }
   .JObwrW_root {
     position: absolute !important;
     right: 8px !important;
@@ -794,7 +819,7 @@
      just the stat text in JS didn't reliably reach already-rendered
      messages. The whole row is dead weight here — the conversation text
      carries everything a phone reader needs. Desktop keeps it. */
-  [class$='_turnStatus'] {
+  [class*='turnStatus'] {
     display: none !important;
   }
 
