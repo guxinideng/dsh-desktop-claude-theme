@@ -838,29 +838,29 @@
    Sits on top of .uV2eYG_input (a real <textarea>) inside .uV2eYG_grow,
    which is already position:relative — so a plain absolute inset pins
    this layer exactly over the input, no extra positioning math needed.
-   Stays inside the composer's existing ~28px-tall footprint rather than
-   forcing it taller (that risks fighting dsh's own textarea auto-resize).
-   --ds-voice-accent is set at runtime by mobile.js from the send
-   button's own background color, so this tracks whatever theme is
-   active instead of a color hardcoded here. See
+
+   Third revision — the visual one. The overlay used to draw its own
+   border + translucent background, which inside dsh's already-bordered
+   composer card read as a box inside a box, with dsh's own placeholder
+   text ("描述你想要构建的内容") still showing through underneath and
+   colliding with the wave graphic. Both are gone now: the overlay is
+   fully transparent and the placeholder is suppressed while it's up, so
+   the composer looks like it was always a voice control rather than a
+   text field with something stuck on top.
+
+   The wave itself is one row of bars that lives in two shapes: at rest
+   only the middle few are grown (a distinct peak, slowly breathing),
+   and holding to record grows the whole row out from the centre. Widths
+   and per-bar transition delays are set from mobile.js — CSS can't
+   express "stagger by distance from centre" on its own. Colors track
+   --ds-voice-accent, set at runtime from the send button's background.
+   -webkit-touch-callout:none suppresses iOS's long-press selection
+   popup, which would otherwise fight the hold-to-record gesture. See
    docs/superpowers/specs/2026-08-16-voice-to-text-composer-design.md */
-/* Second revision: the overlay is back to being the single hit-target
-   (not split into a pass-through wrapper + small inner pill) — but this
-   time it's mobile.js's job to keep typing reachable, by distinguishing
-   a quick tap (focuses the real textarea, brings up the keyboard) from
-   a press-and-hold (starts recording) based on how long the touch is
-   held, not by which pixel it landed on. See the "second attempt" note
-   in mobile.js right above bindVoiceOverlay for the full reasoning.
-   -webkit-touch-callout:none suppresses iOS's long-press
-   selection/magnifier popup, which would otherwise fight the
-   long-press-to-record gesture. */
 .ds-mobile-voice-overlay {
   position: absolute;
   inset: 0;
   z-index: 5;
-  border-radius: 10px;
-  border: 1px solid rgba(127, 127, 127, 0.22);
-  background: rgba(255, 255, 255, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -870,52 +870,56 @@
   -webkit-touch-callout: none;
   overflow: hidden;
 }
-body[data-ds-dark-theme] .ds-mobile-voice-overlay {
-  background: rgba(0, 0, 0, 0.25);
-}
 .ds-mobile-voice-overlay.ds-mobile-voice-hidden {
   display: none;
 }
-.ds-mobile-voice-overlay.ds-mobile-voice-recording {
-  border-color: var(--ds-voice-accent, #d85a30);
+/* dsh's own placeholder would otherwise sit behind the wave — hide it
+   while the voice control owns this space, and let it come back the
+   moment the overlay steps aside for typing. */
+.uV2eYG_grow:has(.ds-mobile-voice-overlay:not(.ds-mobile-voice-hidden)) .uV2eYG_input::placeholder {
+  color: transparent !important;
 }
 .ds-mobile-voice-wave {
   display: flex;
   align-items: center;
-  gap: 3px;
-  height: 16px;
-  transition: opacity 0.15s;
+  justify-content: center;
+  height: 30px;
 }
 .ds-mobile-voice-wave span {
   display: block;
-  width: 2.5px;
+  width: 0;
+  margin: 0;
   border-radius: 2px;
-  background: rgba(127, 127, 127, 0.55);
-  transition: background 0.15s;
+  background: rgba(127, 127, 127, 0.42);
+  transition:
+    width 0.3s cubic-bezier(0.2, 0.8, 0.3, 1),
+    margin 0.3s cubic-bezier(0.2, 0.8, 0.3, 1),
+    height 0.3s cubic-bezier(0.2, 0.8, 0.3, 1),
+    background 0.2s,
+    opacity 0.2s;
 }
-.ds-mobile-voice-overlay.ds-mobile-voice-recording .ds-mobile-voice-wave span {
-  background: var(--ds-voice-accent, #d85a30);
-  animation: ds-voice-wave 0.9s ease-in-out infinite;
+@keyframes ds-voice-breathe {
+  0%, 100% { transform: scaleY(0.88); }
+  50% { transform: scaleY(1); }
 }
-@keyframes ds-voice-wave {
-  0%, 100% { transform: scaleY(0.45); }
+@keyframes ds-voice-pulse {
+  0%, 100% { transform: scaleY(0.32); }
   50% { transform: scaleY(1); }
 }
 .ds-mobile-voice-busy-dots {
-  display: none;
-  font-size: 13px;
+  position: absolute;
+  font-size: 15px;
   color: rgba(127, 127, 127, 0.7);
-  letter-spacing: 2px;
-}
-.ds-mobile-voice-overlay.ds-mobile-voice-busy .ds-mobile-voice-wave {
-  display: none;
+  letter-spacing: 3px;
+  opacity: 0;
+  transition: opacity 0.2s;
 }
 .ds-mobile-voice-overlay.ds-mobile-voice-busy .ds-mobile-voice-busy-dots {
-  display: block;
+  opacity: 1;
   animation: ds-voice-busy-pulse 1s ease-in-out infinite;
 }
 @keyframes ds-voice-busy-pulse {
-  0%, 100% { opacity: 0.3; }
+  0%, 100% { opacity: 0.35; }
   50% { opacity: 0.9; }
 }
 .ds-mobile-voice-text {
@@ -947,8 +951,6 @@ body[data-ds-dark-theme] .ds-mobile-voice-overlay {
   color: rgba(200, 60, 60, 0.85);
 }
 .ds-mobile-voice-overlay.ds-mobile-voice-done .ds-mobile-voice-wave,
-.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-mobile-voice-busy-dots,
-.ds-mobile-voice-overlay.ds-mobile-voice-error .ds-mobile-voice-wave,
-.ds-mobile-voice-overlay.ds-mobile-voice-error .ds-mobile-voice-busy-dots {
+.ds-mobile-voice-overlay.ds-mobile-voice-error .ds-mobile-voice-wave {
   opacity: 0;
 }

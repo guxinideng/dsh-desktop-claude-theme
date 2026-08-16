@@ -1073,7 +1073,20 @@
     'ds-mobile-voice-error',
   ];
   const VOICE_MIN_RECORDING_MS = 300;
-  const VOICE_WAVE_BAR_HEIGHTS = [7, 12, 16, 10, 14, 8, 15, 11];
+  // One row of bars that lives in two shapes: at rest only the middle
+  // VOICE_IDLE_SPAN*2+1 of them are grown (VOICE_IDLE_HEIGHTS — a
+  // deliberate peak, since an even row of equal-ish bars read as flat
+  // and lifeless); holding grows the whole row outward from the centre.
+  // Odd count so there's a real middle bar to expand from.
+  const VOICE_BAR_COUNT = 41;
+  const VOICE_BAR_CENTER = 20;
+  const VOICE_IDLE_SPAN = 2;
+  const VOICE_IDLE_HEIGHTS = [10, 19, 28, 19, 10];
+  // Per-bar variation for the expanded shape. A plain envelope alone
+  // looks like a smooth hill rather than audio; this breaks it up while
+  // staying repeatable (no Math.random, so the wave doesn't reshuffle
+  // itself on every render).
+  const VOICE_BAR_NOISE = [0.58, 0.92, 0.44, 0.78, 1, 0.62, 0.87, 0.48, 0.96, 0.7, 0.83, 0.52, 0.9, 0.66, 0.75];
   const VOICE_DONE_DISPLAY_MS = 900;
   const VOICE_ERROR_DISPLAY_MS = 1500;
   const VOICE_UPLOAD_TIMEOUT_MS = 20000;
@@ -1102,9 +1115,17 @@
     return document.querySelector('.uV2eYG_primary');
   }
 
+  // Single place where state changes drive the wave's shape, so every
+  // caller gets the right geometry without having to remember to also
+  // reshape the bars. Busy/done/error all share the collapsed shape:
+  // recording is over in all three, and what's on screen is the dots or
+  // the text, not the wave.
   function setVoiceState(overlay, state) {
     overlay.classList.remove(...VOICE_STATE_CLASSES);
     if (state) overlay.classList.add(state);
+    if (state === 'ds-mobile-voice-recording') applyVoiceWaveRecording(overlay);
+    else if (state) applyVoiceWaveCollapse(overlay);
+    else applyVoiceWaveIdle(overlay);
   }
 
   function isVoiceMidFlow(overlay) {
@@ -1140,6 +1161,62 @@
     if (accent) overlay.style.setProperty('--ds-voice-accent', accent);
   }
 
+  // The three wave shapes. Each sets per-bar transition-delay as well as
+  // the target geometry, because the staggering is the whole point — the
+  // row grows outward from the middle and collapses back inward, rather
+  // than every bar moving at once. CSS has no way to express "delay by
+  // distance from centre", so the delays are computed here.
+  function voiceWaveBars(overlay) {
+    return overlay.querySelectorAll('.ds-mobile-voice-wave span');
+  }
+
+  function applyVoiceWaveIdle(overlay) {
+    const accent = 'rgba(127, 127, 127, 0.42)';
+    voiceWaveBars(overlay).forEach((bar, i) => {
+      const offset = i - VOICE_BAR_CENTER;
+      bar.style.transitionDelay = Math.abs(offset) * 4 + 'ms';
+      bar.style.background = accent;
+      bar.style.opacity = '1';
+      if (Math.abs(offset) <= VOICE_IDLE_SPAN) {
+        bar.style.width = '3px';
+        bar.style.margin = '0 2.5px';
+        bar.style.height = VOICE_IDLE_HEIGHTS[offset + VOICE_IDLE_SPAN] + 'px';
+        bar.style.animation = 'ds-voice-breathe 3.2s ease-in-out infinite';
+        bar.style.animationDelay = (offset + VOICE_IDLE_SPAN) * 0.12 + 's';
+      } else {
+        bar.style.width = '0';
+        bar.style.margin = '0';
+        bar.style.animation = 'none';
+      }
+    });
+  }
+
+  function applyVoiceWaveRecording(overlay) {
+    voiceWaveBars(overlay).forEach((bar, i) => {
+      const distance = Math.abs(i - VOICE_BAR_CENTER);
+      bar.style.transitionDelay = distance * 7 + 'ms';
+      bar.style.width = '3px';
+      bar.style.margin = '0 1.5px';
+      bar.style.height = bar.dataset.fullHeight + 'px';
+      bar.style.background = 'var(--ds-voice-accent, #d85a30)';
+      bar.style.opacity = '1';
+      bar.style.animation = 'ds-voice-pulse 0.8s ease-in-out infinite';
+      bar.style.animationDelay = distance * 0.045 + 's';
+    });
+  }
+
+  function applyVoiceWaveCollapse(overlay) {
+    voiceWaveBars(overlay).forEach((bar, i) => {
+      // Reversed stagger: the outermost bars leave first, so the row
+      // closes inward instead of unravelling from the middle.
+      bar.style.transitionDelay = (VOICE_BAR_CENTER - Math.abs(i - VOICE_BAR_CENTER)) * 5 + 'ms';
+      bar.style.animation = 'none';
+      bar.style.width = '0';
+      bar.style.margin = '0';
+      bar.style.opacity = '0';
+    });
+  }
+
   function ensureVoiceOverlay() {
     if (!isMobile()) return null;
     const grow = getComposerGrow();
@@ -1157,9 +1234,15 @@
 
     const wave = document.createElement('div');
     wave.className = 'ds-mobile-voice-wave';
-    for (const h of VOICE_WAVE_BAR_HEIGHTS) {
+    for (let i = 0; i < VOICE_BAR_COUNT; i++) {
       const bar = document.createElement('span');
-      bar.style.height = h + 'px';
+      // Envelope (taller in the middle, tapering to the edges) times the
+      // repeating noise above — the expanded height each bar animates to.
+      const distance = Math.abs(i - VOICE_BAR_CENTER) / VOICE_BAR_CENTER;
+      const envelope = 1 - distance * distance * 0.5;
+      const noise = VOICE_BAR_NOISE[i % VOICE_BAR_NOISE.length];
+      bar.dataset.fullHeight = String(Math.round(6 + 22 * envelope * noise));
+      bar.style.height = bar.dataset.fullHeight + 'px';
       wave.appendChild(bar);
     }
     overlay.appendChild(wave);
@@ -1177,6 +1260,10 @@
     if (input && input.value) overlay.classList.add('ds-mobile-voice-hidden');
 
     grow.appendChild(overlay);
+    // Bars are created at their expanded height with width:0; this is
+    // what pulls them into the resting shape. Must run after the append
+    // so the transition has a laid-out starting point to animate from.
+    applyVoiceWaveIdle(overlay);
     return overlay;
   }
 
@@ -1197,6 +1284,13 @@
     if (voiceRecorder || isVoiceMidFlow(overlay)) return;
     voiceReleaseRequested = false;
     applyVoiceAccentColor(overlay);
+    // Expand the wave the moment the hold registers, before asking for
+    // the mic — getUserMedia can take a while to settle (a permission
+    // sheet on first use, tens to hundreds of ms even once granted), and
+    // waiting for it left the finger down with nothing happening on
+    // screen. The recording state is entered optimistically here and
+    // walked back below if the mic never arrives.
+    setVoiceState(overlay, 'ds-mobile-voice-recording');
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1218,12 +1312,22 @@
       if (event.data && event.data.size > 0) voiceChunks.push(event.data);
     };
     voiceRecorder.start();
-    setVoiceState(overlay, 'ds-mobile-voice-recording');
+    // No setVoiceState here — the recording state was already entered
+    // optimistically above; re-applying it would restart the wave
+    // animation mid-gesture.
   }
 
   function stopVoiceRecording(overlay) {
     if (!voiceRecorder) {
       voiceReleaseRequested = true;
+      // Released while the mic request was still pending. Pull the wave
+      // back so it doesn't sit expanded with nothing recording — but
+      // only from the optimistic recording state, never over an error
+      // message that already replaced it (that would blank the message
+      // the moment the finger lifts, before it could be read).
+      if (overlay.classList.contains('ds-mobile-voice-recording')) {
+        setVoiceState(overlay, null);
+      }
       return;
     }
     const recordedMs = Date.now() - voiceRecordingStartedAt;
