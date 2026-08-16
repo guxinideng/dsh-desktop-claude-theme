@@ -12,6 +12,20 @@
    already accepts for its desktop overrides. */
 
 @media (max-width: 640px) {
+  /* Motion tokens (2026-08-17): one shared set of durations and easing
+     so the drawer, the settings panel and every other non-voice
+     transition feel like the same physics. The voice waveform /
+     shimmer animations are intentionally NOT tokenized — they were
+     tuned and confirmed frame-by-frame with the user and live outside
+     this scale. */
+  :root {
+    --ds-dur-fast: 0.18s;
+    --ds-dur-base: 0.25s;
+    --ds-dur-slow: 0.36s;
+    --ds-ease: cubic-bezier(0.32, 0.72, 0, 1);
+    --ds-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
   /* Undo the Electron-only title-bar clearance hack — there's no native
      title bar in a phone browser, so this just leaves a blank strip. */
   body {
@@ -187,7 +201,7 @@
        cut off top and bottom on a real phone instead of running edge to
        edge. */
     z-index: 100 !important;
-    transition: left 0.25s ease;
+    transition: left var(--ds-dur-base) var(--ds-ease);
     /* Rounds only the trailing edge (away from the screen edge it's flush
        against) rather than all four corners — this side is flush against
        the left edge of the screen, so a corner there would just look cut
@@ -378,8 +392,11 @@
   /* The brand mark (deepseek glyph + "HARNESS" badge) is one indivisible
      SVG — see the injected note in the chat about why it can't be split.
      Scaling the whole mark down buys back header width without touching
-     dsh's markup. */
-  .hHd-Xa_brand {
+     dsh's markup. The scale lives on the SVG, not the button: the button
+     is also the 新建会话 tap target, and a scale on the button would
+     shrink its hit area below the 44pt target (transform affects the
+     hit-test rect, getBoundingClientRect reads 35px here). */
+  .hHd-Xa_brand svg {
     transform: scale(0.8);
     transform-origin: left center;
   }
@@ -406,9 +423,87 @@
   }
   ._7KE1Ra_trigger {
     max-width: 42vw !important;
+  }
+  /* The ellipsis must live on the label (the actual text node), not the
+     button: with overflow:hidden on the button the ::after hit-area
+     below would be clipped by the button itself. The label is the flex
+     child that needs the min-width:0 to be shrinkable. */
+  ._7KE1Ra_triggerLabel {
+    max-width: 100% !important;
+    min-width: 0 !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
     white-space: nowrap !important;
+  }
+
+  /* ── 44pt touch targets (iOS minimum) ──────────────────────────────
+     Most of these buttons are 28px tall — a mouse pointer is fine, a
+     fingertip isn't. The rule: expand the *hit area*, not the icon, so
+     the visual layout is untouched. Two mechanisms:
+       - elements whose own overflow is visible get an absolutely-
+         positioned ::after hit area (inset negative on the short sides
+         to reach 44px);
+       - elements that clip their own content (overflow:hidden for
+         ellipsis etc.) can't show a ::after, so they get min-height
+         instead — a few extra pixels of row height, visual impact
+         minimal.
+     Buttons are made position:relative so the ::after anchors to them.
+     Overlap note: 选择工作区/中文思考 and the rail icons sit ~4px apart,
+     so 44px hit areas overlap by ~12px; the later element wins the
+     overlap (standard, matches iOS toolbar behavior). */
+  .uV2eYG_add,
+  .Sh0Q9G_trigger,
+  ._7KE1Ra_trigger,
+  .uV2eYG_primary,
+  .pXSMma_workspace,
+  .cubgiG_seat {
+    position: relative !important;
+  }
+  .uV2eYG_add::after,
+  .pXSMma_workspace::after,
+  .cubgiG_seat::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+    border-radius: 12px;
+  }
+  .Sh0Q9G_trigger::after,
+  ._7KE1Ra_trigger::after {
+    content: '';
+    position: absolute;
+    inset: -8px 0;
+    border-radius: 12px;
+  }
+  .uV2eYG_primary::after {
+    content: '';
+    position: absolute;
+    inset: -5px;
+    border-radius: 12px;
+  }
+  .cubgiG_seat {
+    /* dsh's own overflow:hidden would clip the ::after hit area; the
+       seat's contents (16px icon, short label) never exceed its 16px
+       radius, so visible is safe. */
+    overflow: visible !important;
+  }
+  /* The rail icon buttons sit in 28px-tall rows whose containers are
+     overflow:hidden (qDHVXG_search / qDHVXG_headerActions) — an
+     absolutely-positioned ::after would be clipped by that row, so these
+     grow to 44px for real instead. flex+center keeps the icon visually
+     centered in the larger button. */
+  .qDHVXG_searchButton,
+  .qDHVXG_iconButton {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+  .hHd-Xa_newSession,
+  .hHd-Xa_brand,
+  .qDHVXG_sessionOverflowButton,
+  .VOzbGW_trigger {
+    min-height: 44px !important;
+  }
+  .hHd-Xa_newSession {
+    min-width: 44px !important;
   }
 
   /* ── Settings dialog: a half-width drawer, like the sidebar ─────────
@@ -486,7 +581,7 @@
        animation's 250ms; mobile.js's drag sets its own inline transform
        (and disables this animation) the moment a finger lands on the
        panel, so the two never fight for control of the same property. */
-    animation: ds-settings-in 0.25s ease;
+    animation: ds-settings-in var(--ds-dur-base) var(--ds-ease);
   }
   @keyframes ds-settings-in {
     from {
@@ -1191,5 +1286,18 @@
   .uV2eYG_mirror,
   .uV2eYG_backdrop {
     font-family: 'Songti SC', ui-serif, Georgia, serif !important;
+  }
+
+  /* Reduced motion (2026-08-17): collapse the non-voice chrome
+     animations to instant. The voice waveform/shimmer are deliberately
+     left running — they were tuned with the user and, being purely
+     decorative status feedback, benefit the same users who ask for
+     reduced motion less than the layout-moving drawer does. */
+  @media (prefers-reduced-motion: reduce) {
+    .pI_x6G_sidebarCol,
+    .VOzbGW_panel {
+      transition: none !important;
+      animation: none !important;
+    }
   }
 }
