@@ -317,27 +317,6 @@ function serveThemeAsset(pathname, res) {
   res.end(fs.readFileSync(asset.file, 'utf8'));
 }
 
-// TEMPORARY diagnostic sink: the phone renders the per-message stats row
-// differently from local Electron, so mobile.js ships the real leaf-text
-// structure here for inspection. Remove once the row is fixed.
-function handleDiag(req, res) {
-  let body = '';
-  req.on('data', (c) => {
-    body += c;
-    if (body.length > 60000) req.destroy();
-  });
-  req.on('end', () => {
-    try {
-      fs.writeFileSync('/tmp/dsh-mobile-diag.txt', body);
-      console.log('[gateway] diag saved,', body.length, 'bytes');
-    } catch (err) {
-      console.error('[gateway] diag save failed:', err.message);
-    }
-    res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('ok');
-  });
-}
-
 // main.js injects theme.css into the Electron window at runtime via
 // webContents.insertCSS — there's no webContents here, so this does the
 // browser-side equivalent by fetching dsh's own index HTML and splicing in
