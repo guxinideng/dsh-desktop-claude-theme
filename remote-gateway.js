@@ -363,7 +363,36 @@ function serveThemedIndex(req, res) {
             `<link rel="stylesheet" href="/__ds_theme/mobile.css?v=${themeStamp}">\n` +
             '</head>'
         )
-        .replace('</body>', `<script src="/__ds_theme/mobile.js?v=${themeStamp}"></script>\n</body>`);
+        .replace('</body>', `<script src="/__ds_theme/mobile.js?v=${themeStamp}"></script>\n</body>`)
+        // dsh's mount point arrives empty — nothing paints until the SPA's
+        // JS bundles (vendor + index, ~1.2MB combined) download, parse,
+        // execute, and React renders: measured ~2.7s of blank white
+        // before first paint on this connection. Standalone/home-screen
+        // mode has no browser chrome (no progress bar, no address bar)
+        // to signal that anything is happening in that window, so a
+        // static skeleton goes here instead. Inlined (not from
+        // mobile.css) so it's already paintable in the same response,
+        // before any stylesheet has had a chance to load; React's own
+        // render replaces these children wholesale on mount, so this
+        // needs no cleanup logic of its own.
+        .replace(
+          '<div id="root"></div>',
+          '<div id="root"><div style="position:fixed;inset:0;background:#FAF9F5;' +
+            'display:flex;flex-direction:column;">' +
+            '<div style="flex:0 0 auto;height:52px;padding-top:env(safe-area-inset-top);' +
+            'display:flex;align-items:center;padding-left:16px;box-sizing:content-box;">' +
+            '<div style="width:96px;height:16px;border-radius:4px;background:#EDE9DF;' +
+            'animation:ds-boot-pulse 1.6s ease-in-out infinite;"></div>' +
+            '</div>' +
+            '<div style="flex:1 1 auto;"></div>' +
+            '<div style="flex:0 0 auto;padding:12px 16px calc(12px + env(safe-area-inset-bottom));">' +
+            '<div style="height:52px;border-radius:16px;background:#EDE9DF;' +
+            'animation:ds-boot-pulse 1.6s ease-in-out infinite;"></div>' +
+            '</div>' +
+            '</div>' +
+            '<style>@keyframes ds-boot-pulse{0%,100%{opacity:.6}50%{opacity:1}}</style>' +
+            '</div>'
+        );
       // dsh serves this chunked (no content-length at all) — carrying that
       // header forward while also setting content-length below leaves both
       // present, which is an invalid combination (RFC 7230 §3.3.3) that had
