@@ -203,7 +203,19 @@ function spawnVendoredDsh(binPath) {
   // before Node 22.19. --expose-internals is dsh's own plugin-hmr module
   // requiring it at boot; without it dsh refuses to start at all, even
   // though a packaged desktop app has no use for hot-reloading plugins.
-  const child = spawn(process.execPath, ['--expose-internals', binPath, 'web', '--port', String(DSH_PORT)], {
+  // DSH_TRUSTED_HOSTS (comma-separated host[:port]) mirrors the remote
+  // gateway's env var of the same name: when the desktop shell is the one
+  // providing dsh while the gateway also fronts it, the spawned dsh must
+  // trust the hosts the gateway proxies in for, or the /api browser-trust
+  // fence 403s every proxied request. Set via launchctl setenv so the
+  // packaged app inherits it from launchd.
+  const trustedHosts = (process.env.DSH_TRUSTED_HOSTS || '')
+    .split(',')
+    .map((h) => h.trim())
+    .filter(Boolean);
+  const dshArgs = ['--expose-internals', binPath, 'web', '--port', String(DSH_PORT)];
+  for (const host of trustedHosts) dshArgs.push('--trusted-host', host);
+  const child = spawn(process.execPath, dshArgs, {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     stdio: 'pipe',
   });

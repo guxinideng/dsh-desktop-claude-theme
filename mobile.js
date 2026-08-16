@@ -552,7 +552,22 @@
       if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) return;
       event.preventDefault();
       event.stopPropagation();
+      // Close the picker two ways so it closes no matter which listener
+      // dsh's current build hangs off the button:
+      //  1. Replay the button's own click (the earlier fix relied on this
+      //     alone; a dsh re-render can desync its open-state, making the
+      //     click a no-op re-open instead of a toggle — user report of
+      //     "再按一下收不回去了").
+      //  2. Dispatch an outside-pointerdown at the body: dsh's click-
+      //     outside handler treats any pointerdown outside the menu as
+      //     "dismiss", which is state-independent and always wins.
       btn.click();
+      // Coordinates OUTSIDE the button's rect: this dispatched
+      // pointerdown must not re-enter this same interceptor (it checks
+      // the button's rect), or it would recurse forever.
+      document.body.dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: Math.max(0, r.left - 24), clientY: r.top + 4 })
+      );
     },
     true
   );
@@ -1077,9 +1092,14 @@
   // VOICE_IDLE_SPAN*2+1 of them are grown (VOICE_IDLE_HEIGHTS — a
   // deliberate peak, since an even row of equal-ish bars read as flat
   // and lifeless); holding grows the whole row outward from the centre.
-  // Odd count so there's a real middle bar to expand from.
-  const VOICE_BAR_COUNT = 41;
-  const VOICE_BAR_CENTER = 20;
+  // Odd count so there's a real middle bar to expand from. 21 bars, not
+  // the earlier 41: every bar in recording mode runs its own infinite
+  // scaleY animation on its own composited layer, and 41 concurrent
+  // animated layers is exactly the sort of GPU pressure that reads as
+  // stutter on a phone (the "转译过渡动画卡" report) — half the bars
+  // still reads as a dense wave but costs half the compositor work.
+  const VOICE_BAR_COUNT = 21;
+  const VOICE_BAR_CENTER = 10;
   const VOICE_IDLE_SPAN = 2;
   const VOICE_IDLE_HEIGHTS = [10, 19, 28, 19, 10];
   // Per-bar variation for the expanded shape. A plain envelope alone
@@ -1089,7 +1109,12 @@
   const VOICE_BAR_NOISE = [0.58, 0.92, 0.44, 0.78, 1, 0.62, 0.87, 0.48, 0.96, 0.7, 0.83, 0.52, 0.9, 0.66, 0.75];
   const VOICE_DONE_DISPLAY_MS = 900;
   const VOICE_ERROR_DISPLAY_MS = 1500;
-  const VOICE_UPLOAD_TIMEOUT_MS = 20000;
+  // Upload/transcription budget. whisper.cpp transcribes longer
+  // recordings slower than short ones; 20s was enough for a quick phrase
+  // but aborted mid-transcription for anything longer (user report: "说
+  // 的时间长一点就转译不出来"). 60s covers multi-sentence holds while
+  // still failing fast on a genuinely stuck server.
+  const VOICE_UPLOAD_TIMEOUT_MS = 60000;
   // Below this, a touch is a tap (type manually); at or above, it's a
   // hold (start recording). ~150ms is roughly how long a normal tap
   // lasts; 200ms gives a little slack without making holds feel laggy.
@@ -1176,16 +1201,17 @@
       const offset = i - VOICE_BAR_CENTER;
       bar.style.transitionDelay = Math.abs(offset) * 4 + 'ms';
       bar.style.background = accent;
-      bar.style.opacity = '1';
       if (Math.abs(offset) <= VOICE_IDLE_SPAN) {
-        bar.style.width = '3px';
-        bar.style.margin = '0 2.5px';
+        bar.style.opacity = '1';
         bar.style.height = VOICE_IDLE_HEIGHTS[offset + VOICE_IDLE_SPAN] + 'px';
         bar.style.animation = 'ds-voice-breathe 3.2s ease-in-out infinite';
         bar.style.animationDelay = (offset + VOICE_IDLE_SPAN) * 0.12 + 's';
       } else {
-        bar.style.width = '0';
-        bar.style.margin = '0';
+        // Outlier bars rest as short dim stubs instead of collapsing to
+        // width:0 — visibility is opacity here (see the CSS transition
+        // list), and animating opacity costs no layout, unlike width.
+        bar.style.opacity = '0.35';
+        bar.style.height = '6px';
         bar.style.animation = 'none';
       }
     });
@@ -1195,8 +1221,6 @@
     voiceWaveBars(overlay).forEach((bar, i) => {
       const distance = Math.abs(i - VOICE_BAR_CENTER);
       bar.style.transitionDelay = distance * 7 + 'ms';
-      bar.style.width = '3px';
-      bar.style.margin = '0 1.5px';
       bar.style.height = bar.dataset.fullHeight + 'px';
       bar.style.background = 'var(--ds-voice-accent, #d85a30)';
       bar.style.opacity = '1';
@@ -1208,11 +1232,11 @@
   function applyVoiceWaveCollapse(overlay) {
     voiceWaveBars(overlay).forEach((bar, i) => {
       // Reversed stagger: the outermost bars leave first, so the row
-      // closes inward instead of unravelling from the middle.
+      // closes inward instead of unravelling from the middle. The bars
+      // fade out (opacity) rather than animating width/margin to zero —
+      // opacity transitions on the compositor, width/margin don't.
       bar.style.transitionDelay = (VOICE_BAR_CENTER - Math.abs(i - VOICE_BAR_CENTER)) * 5 + 'ms';
       bar.style.animation = 'none';
-      bar.style.width = '0';
-      bar.style.margin = '0';
       bar.style.opacity = '0';
     });
   }
@@ -1444,9 +1468,35 @@
     });
   }
 
+  // Recovery safety net: the recall above only fires on the send BUTTON's
+  // click — sending via the iOS keyboard's return/go key (or Enter) never
+  // touches that button, so the overlay stayed hidden forever after the
+  // first typed or voice send (user report: "发言一次/打字之后就不出现
+  // 语音了"). dsh clears the textarea on every successful send regardless
+  // of how it was sent, so an empty input with a hidden overlay is the
+  // reliable signal to bring the voice control back. Runs on the same 1s
+  // poll as the other voice bindings.
+  function recallVoiceOverlayWhenInputEmpty() {
+    const overlay = ensureVoiceOverlay();
+    if (!overlay || isVoiceMidFlow(overlay)) return;
+    if (!overlay.classList.contains('ds-mobile-voice-hidden')) return;
+    const input = getVoiceComposerInput();
+    // Only recall when the input is both empty AND not focused: right
+    // after a tap-to-type, the overlay is hidden but the input is still
+    // empty and focused — recalling then would pop the wave back over
+    // the keyboard just as the user starts typing (which also re-armed
+    // the backdrop-transparent rule, so typed text was invisible while
+    // the caret blinked — user report).
+    if (input && !input.value && document.activeElement !== input) {
+      overlay.classList.remove('ds-mobile-voice-hidden');
+      setVoiceState(overlay, null);
+    }
+  }
+
   setInterval(() => {
     if (!isMobile()) return;
     bindVoiceOverlay();
     bindSendButtonForVoiceRecall();
+    recallVoiceOverlayWhenInputEmpty();
   }, 1000);
 })();

@@ -74,7 +74,11 @@ const TLS_OPTS =
 const STT_MODEL_FILE =
   process.env.STT_MODEL_FILE || path.join(__dirname, 'whisper-models', 'ggml-large-v3-turbo-q5_0.bin');
 const STT_WHISPER_BIN = process.env.STT_WHISPER_BIN || 'whisper-cli';
-const STT_TIMEOUT_MS = Number(process.env.STT_TIMEOUT_MS) || 30000;
+// Raised from 30s: whisper.cpp transcribes longer recordings slower than
+// short ones, and a multi-sentence hold used to blow the 30s budget and
+// fail the whole request (paired with the client's 20s abort in mobile.js,
+// both since raised to 60s).
+const STT_TIMEOUT_MS = Number(process.env.STT_TIMEOUT_MS) || 60000;
 const DSH_URL = `http://127.0.0.1:${DSH_PORT}`;
 const COOKIE_NAME = 'dsh_gateway_token';
 // However long IDLE_MS is, poll for it at a matching cadence — capped to
@@ -327,10 +331,16 @@ function serveThemedIndex(req, res) {
         // Pinch-zoom fights the drawer's own swipe gestures more than it
         // helps on a chat UI that already reflows its own text size — this
         // only takes effect on mobile's narrow-viewport rendering, desktop
-        // browsers ignore user-scalable entirely.
+        // browsers ignore user-scalable entirely. viewport-fit=cover lets
+        // the page paint behind the notch / Dynamic Island — without it
+        // iOS fills that safe-area strip with the browser's own white,
+        // which stayed white on screen even when the app was in dark mode
+        // (the stray light block beside the island). With cover, the
+        // page's own background reaches the edge and mobile.css's
+        // safe-area paddings keep content out from under the island.
         .replace(
           '<meta name="viewport" content="width=device-width, initial-scale=1" />',
-          '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />'
+          '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />'
         )
         .replace(
           '</head>',
