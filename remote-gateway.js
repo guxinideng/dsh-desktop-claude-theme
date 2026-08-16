@@ -540,6 +540,42 @@ function serveThemedIndex(req, res) {
   });
 }
 
+// dsh's own manifest declares display:"fullscreen", which hides the
+// status bar (clock/battery/signal) — a real loss for a chat tool the
+// user dips in and out of all day; standalone is the normal choice for
+// an app like this. (A user screenshot showed the status bar visible
+// regardless, suggesting iOS may already be treating it as standalone —
+// this is mostly about making the declared config match actual behavior,
+// not fixing a visibly broken one.) JSON.parse/stringify rather than a
+// text replace so this doesn't depend on dsh's exact formatting.
+function serveManifest(req, res) {
+  const upstream = http.get(DSH_URL + req.url, (dshRes) => {
+    const chunks = [];
+    dshRes.on('data', (chunk) => chunks.push(chunk));
+    dshRes.on('end', () => {
+      let body = Buffer.concat(chunks).toString('utf8');
+      try {
+        const manifest = JSON.parse(body);
+        if (manifest.display === 'fullscreen') manifest.display = 'standalone';
+        body = JSON.stringify(manifest, null, 2);
+      } catch (err) {
+        console.error('[gateway] manifest parse error:', err.message);
+        // fall through and proxy dsh's original bytes unmodified
+      }
+      const headers = { ...dshRes.headers, 'content-length': Buffer.byteLength(body) };
+      delete headers['content-encoding'];
+      delete headers['transfer-encoding'];
+      res.writeHead(dshRes.statusCode, headers);
+      res.end(body);
+    });
+  });
+  upstream.on('error', (err) => {
+    console.error('[gateway] manifest fetch error:', err.message);
+    if (!res.headersSent) res.writeHead(502, { 'content-type': 'application/json; charset=utf-8' });
+    res.end('{}');
+  });
+}
+
 const requestHandler = async (req, res) => {
   const auth = authMethod(req);
   if (auth === null) {
@@ -606,6 +642,11 @@ const requestHandler = async (req, res) => {
 
   if (pathname === '/') {
     serveThemedIndex(req, res);
+    return;
+  }
+
+  if (pathname === '/manifest.webmanifest') {
+    serveManifest(req, res);
     return;
   }
 
