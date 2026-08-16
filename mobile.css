@@ -788,6 +788,16 @@
     max-width: calc(100vw - 24px) !important;
   }
 
+  /* Message turn-status rows ("21:33 · 用时 … · 首 token … · … tok/s")
+     are gone entirely on mobile (2026-08-16): the latency/rate figures
+     overflow the right edge and aren't useful on a phone, and trimming
+     just the stat text in JS didn't reliably reach already-rendered
+     messages. The whole row is dead weight here — the conversation text
+     carries everything a phone reader needs. Desktop keeps it. */
+  [class$='_turnStatus'] {
+    display: none !important;
+  }
+
   /* ── In-message meta lines stay visible (2026-08-16) ────────────────
      Small grey meta rows inside messages (retry timing, duration, error
      details, elapsed/time labels) can end up hidden under the following
