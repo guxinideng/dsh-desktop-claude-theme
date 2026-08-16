@@ -689,19 +689,47 @@
     true
   );
 
-  // ── Workspace picker: no special handling ────────────────────────────
-  // A prior fix here intercepted pointerdown on the trigger's rect while
-  // its menu was open and replayed the click plus a synthetic outside
-  // pointerdown, meant to force-close a picker that supposedly couldn't
-  // be toggled closed by a second tap. In practice that "fix" was the
-  // actual source of a flicker/stutter on repeated taps (user report,
-  // confirmed by comparing against the Agent-preset trigger next to it,
-  // which gets none of this special handling and toggles cleanly every
-  // time) — two state changes fired back-to-back in one event, racing
-  // dsh's own React state before the first one had committed. Removed;
-  // the workspace picker now behaves exactly like every other dsh menu
-  // trigger on this page, relying on dsh's own click-to-toggle and
-  // click-outside-to-dismiss.
+  // ── Workspace picker: dismiss-on-chip-tap ───────────────────────────
+  // dsh's workspace Menu renders with anchor={null} and positions itself
+  // off getAnchorRect (the chip's rect), so the chip button is NOT inside
+  // the Menu's root ref. While the menu is open dsh's own document-level
+  // pointerdown listener therefore treats a tap on the chip as an
+  // "outside" interaction and closes the menu — and then the chip's own
+  // onClick toggle (setPickerOpen(open => !open)) runs on the click that
+  // follows and reopens it. Net effect of one tap: close→reopen in a
+  // single gesture, which reads as a flash, and the menu never actually
+  // dismisses (user report: "点一下...再点一下，它取消不了，它就会闪一下").
+  // The Agent-preset seat next to it anchors its Menu on the button
+  // itself, so the button lives inside the Menu's root ref, the pointer
+  // down is not "outside", and its toggle closes cleanly — the behavior
+  // the user asked the workspace chip to match.
+  //
+  // Fix: remember when a pointerdown lands on the chip while the menu is
+  // open, then swallow the click that follows. The close already fired
+  // from dsh's own pointerdown handler sticks instead of being re-toggled
+  // open. Taps when the menu is closed are untouched (pointerdown records
+  // false), so opening still works through dsh's normal toggle.
+  let workspaceChipTapWhileOpen = false;
+  document.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (!isMobile() || !event.isPrimary) return;
+      const chip = event.target.closest && event.target.closest('.pXSMma_workspace');
+      workspaceChipTapWhileOpen = !!chip && chip.getAttribute('aria-expanded') === 'true';
+    },
+    true
+  );
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (!isMobile() || !workspaceChipTapWhileOpen) return;
+      workspaceChipTapWhileOpen = false;
+      if (!event.target.closest('.pXSMma_workspace')) return;
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    true
+  );
 
   // Selecting a session (or starting a new one) should feel like
   // navigating, not "change the active chat but leave the list covering
