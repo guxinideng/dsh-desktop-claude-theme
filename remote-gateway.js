@@ -387,12 +387,23 @@ const THEME_ASSETS = {
   '/__ds_theme/theme.css': { file: path.join(__dirname, 'theme.css'), type: 'text/css; charset=utf-8' },
   '/__ds_theme/mobile.css': { file: path.join(__dirname, 'mobile.css'), type: 'text/css; charset=utf-8' },
   '/__ds_theme/mobile.js': { file: path.join(__dirname, 'mobile.js'), type: 'application/javascript; charset=utf-8' },
+  // Reuses the Electron app's own packaged icon (build/AppIcon.iconset) —
+  // already exists, already the project's actual mark, no new asset
+  // generated just to fill this in. 256x256 comfortably covers iOS's
+  // largest apple-touch-icon use (iPad Pro at 167x167); binary:true skips
+  // the utf8 read below, which would otherwise corrupt the PNG bytes.
+  '/__ds_theme/apple-touch-icon.png': {
+    file: path.join(__dirname, 'build', 'AppIcon.iconset', 'icon_256x256.png'),
+    type: 'image/png',
+    binary: true,
+  },
 };
 
 function serveThemeAsset(pathname, res) {
   const asset = THEME_ASSETS[pathname];
-  res.writeHead(200, { 'content-type': asset.type, 'cache-control': 'no-cache' });
-  res.end(fs.readFileSync(asset.file, 'utf8'));
+  const cacheControl = asset.binary ? 'public, max-age=86400' : 'no-cache';
+  res.writeHead(200, { 'content-type': asset.type, 'cache-control': cacheControl });
+  res.end(fs.readFileSync(asset.file, asset.binary ? undefined : 'utf8'));
 }
 
 // main.js injects theme.css into the Electron window at runtime via
@@ -437,7 +448,15 @@ function serveThemedIndex(req, res) {
         )
         .replace(
           '</head>',
-          `<link rel="stylesheet" href="/__ds_theme/theme.css?v=${themeStamp}">\n` +
+          // iOS reads its own apple-* tags for "added to home screen" mode
+          // (manifest support came later and is more limited) — none of
+          // these existed before, so a saved icon had no capable/title/
+          // status-bar declarations to go on at all.
+          '<meta name="apple-mobile-web-app-capable" content="yes">\n' +
+            '<meta name="apple-mobile-web-app-status-bar-style" content="default">\n' +
+            '<meta name="apple-mobile-web-app-title" content="DeepSeek">\n' +
+            `<link rel="apple-touch-icon" href="/__ds_theme/apple-touch-icon.png?v=${themeStamp}">\n` +
+            `<link rel="stylesheet" href="/__ds_theme/theme.css?v=${themeStamp}">\n` +
             `<link rel="stylesheet" href="/__ds_theme/mobile.css?v=${themeStamp}">\n` +
             '</head>'
         )
