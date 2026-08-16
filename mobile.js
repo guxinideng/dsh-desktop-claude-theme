@@ -255,19 +255,26 @@
   // the poll and trims whatever exists.
   function trimTurnStatusStats() {
     if (!isMobile()) return;
-    document.querySelectorAll('[class$="_turnStatus"]').forEach((row) => {
+    // class* not class$: the turn-status element can carry multiple
+    // classes, so an end-anchored match missed it (stats row kept
+    // rendering — user report).
+    document.querySelectorAll('[class*="turnStatus"]').forEach((row) => {
+      // Keep ONLY text that starts with an absolute clock time (21:33) —
+      // everything else on the row (· 用时 … · deepdiving · 首 token … ·
+      // … tok/s) is emptied, and empty spans are removed so the row
+      // collapses to just the time instead of a trail of gaps.
       const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
       const dead = [];
       let node;
       while ((node = walker.nextNode())) {
-        if (node.textContent && /用时|首 token|tok\/s/.test(node.textContent)) dead.push(node);
+        const t = node.textContent || '';
+        if (t.trim() && !/^\s*\d{1,2}:\d{2}/.test(t)) dead.push(node);
       }
       dead.forEach((node) => {
         node.textContent = '';
-        const parent = node.parentElement;
-        if (parent && !parent.textContent.trim() && !parent.querySelector('[class$="_timeStart"], [class$="_timeEnd"]')) {
-          parent.style.display = 'none';
-        }
+      });
+      row.querySelectorAll('span, div').forEach((el) => {
+        if (!el.textContent.trim() && !el.querySelector('*')) el.remove();
       });
     });
   }
