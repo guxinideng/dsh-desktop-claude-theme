@@ -182,6 +182,42 @@
     observeModelLabel();
     syncTrajectoryTabStrip();
     relocateContextRing();
+    syncThemeColor();
+    pinMobileToLight();
+  }
+
+  // The status-bar / Dynamic-Island strip in iOS (especially in the
+  // "添加到主屏幕" standalone mode the user runs this in) is painted
+  // from <meta name="theme-color">, NOT from html/body backgrounds —
+  // other dark-mode sites look "整体" because they ship one. dsh ships
+  // none, so iOS fell back to its default light strip in every theme
+  // (the persistent "灵动岛旁边还是浅色" report). Create/update the meta
+  // to follow dsh's theme flag; iOS 15+ picks up dynamic changes, so the
+  // 2s poll below keeps it in sync after a theme switch.
+  function syncThemeColor() {
+    const dark = document.body && document.body.hasAttribute('data-ds-dark-theme');
+    let meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) {
+      meta = document.createElement('meta');
+      meta.name = 'theme-color';
+      document.head.appendChild(meta);
+    }
+    meta.content = dark ? '#181716' : '#faf9f5';
+  }
+
+  // Mobile is pinned to light mode (2026-08-16). The Dynamic-Island /
+  // status-bar strip in iOS standalone mode ("添加到主屏幕") doesn't track
+  // dark mode reliably on this phone, and after several rounds of
+  // fighting it the call was made to stop: the phone view stays light,
+  // so the strip and the page always match. dsh's dark flag is simply
+  // removed every poll — the whole UI (and the safe-area strip) falls
+  // back to the light palette and stays there, no matter what the
+  // appearance setting or the OS scheme says.
+  function pinMobileToLight() {
+    if (!isMobile()) return;
+    if (document.body && document.body.hasAttribute('data-ds-dark-theme')) {
+      document.body.removeAttribute('data-ds-dark-theme');
+    }
   }
 
   // The 对话/轨迹 tab strip is hidden on mobile (mobile.css), but dsh can
@@ -313,6 +349,8 @@
     observeModelLabel();
     syncTrajectoryTabStrip();
     relocateContextRing();
+    pinMobileToLight();
+    syncThemeColor();
   }, 2000);
 
   // Settings dialog is a portal mounted fresh each time its trigger is

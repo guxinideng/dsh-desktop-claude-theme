@@ -357,6 +357,13 @@ function serveThemedIndex(req, res) {
       const headers = { ...dshRes.headers, 'content-length': Buffer.byteLength(body) };
       delete headers['content-encoding'];
       delete headers['transfer-encoding'];
+      // The injected index carries our viewport/theme edits, so it must
+      // never be served from a stale cache — dsh sends no cache-control
+      // of its own, and without one the browser's heuristic caching kept
+      // serving the pre-viewport-fit HTML no matter how often the page
+      // was refreshed (the island stayed light even after the fix). Pin
+      // it to no-store so every load re-fetches the rewritten index.
+      headers['cache-control'] = 'no-store';
       res.writeHead(dshRes.statusCode, headers);
       res.end(body);
     });
