@@ -18,6 +18,20 @@
     padding-top: 0 !important;
   }
 
+  /* The notch / Dynamic Island safe-area strip paints whatever the html
+     element's background is (viewport-fit=cover, injected by
+     remote-gateway.js, extends the page behind it). html was transparent,
+     so iOS filled that strip with its own white regardless of theme —
+     the light block beside the island in dark mode. Paint html with the
+     theme's page background; :has() follows dsh's actual theme flag
+     (which the user can set independently of the OS scheme). */
+  html {
+    background: rgb(250, 249, 245) !important;
+  }
+  html:has(body[data-ds-dark-theme]) {
+    background: rgb(24, 23, 22) !important;
+  }
+
   /* viewport-fit=cover (injected by remote-gateway.js) extends the page
      behind the notch / Dynamic Island; dsh's header carries no safe-area
      padding of its own, so give it the top inset — otherwise the header
