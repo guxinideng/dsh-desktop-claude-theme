@@ -992,6 +992,24 @@
   opacity: 0;
 }
 
+/* Slide-up-to-cancel, layered on top of the recording state rather than
+   a state of its own — it's a modifier of "currently recording", tracked
+   by mobile.js's touchmove (distance from the touchstart Y). Bars dim to
+   a neutral grey (recording's accent color would read as "still counts"
+   which is the opposite of what cancelling means) and the prompt reuses
+   the text layer rather than adding a new element for it — same
+   opacity/translateY entrance as the done/error text, just a different
+   trigger and a neutral color instead of error's red. */
+.ds-mobile-voice-overlay.ds-mobile-voice-recording.ds-mobile-voice-cancel-armed .ds-mobile-voice-wave span {
+  background: rgba(127, 127, 127, 0.5) !important;
+  animation: none !important;
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-recording.ds-mobile-voice-cancel-armed .ds-mobile-voice-text {
+  opacity: 1;
+  transform: translateY(0);
+  color: rgba(127, 127, 127, 0.75);
+}
+
 /* ── Default font: 宋体 ───────────────────────────────────────────────
    Desktop (font-picker.js, injected by main.js only) lets the user pick
    from 5 fonts by writing this same --dsw-font-family custom property
