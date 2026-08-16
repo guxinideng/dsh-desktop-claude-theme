@@ -1325,7 +1325,6 @@
   // staying repeatable (no Math.random, so the wave doesn't reshuffle
   // itself on every render).
   const VOICE_BAR_NOISE = [0.58, 0.92, 0.44, 0.78, 1, 0.62, 0.87, 0.48, 0.96, 0.7, 0.83, 0.52, 0.9, 0.66, 0.75];
-  const VOICE_DONE_DISPLAY_MS = 900;
   const VOICE_ERROR_DISPLAY_MS = 1500;
   // Upload/transcription budget. whisper.cpp transcribes longer
   // recordings slower than short ones; 20s was enough for a quick phrase
@@ -1517,18 +1516,150 @@
     return overlay;
   }
 
+  // Write text into the composer's real textarea through the native value
+  // setter, so React's controlled-input handler sees a real 'input' event
+  // and keeps its draft state in sync (a plain value= assignment would be
+  // overwritten by the next controlled re-render). Returns false when the
+  // textarea isn't there. The voice overlay only ever appears over an
+  // empty input, so this always overwrites rather than appends — and the
+  // type-in animation calls it once per visible chunk.
   function fillComposerText(text) {
     const input = getVoiceComposerInput();
-    if (!input || !text) return;
-    const existing = input.value || '';
-    const combined = existing ? existing + text : text;
+    if (!input) return false;
     const nativeSetter = Object.getOwnPropertyDescriptor(
       window.HTMLTextAreaElement.prototype,
       'value'
     ).set;
-    nativeSetter.call(input, combined);
+    nativeSetter.call(input, text);
     input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
   }
+
+  // Whisper emits CJK text with a space between every character ("你 好 世
+  // 界") and one line per pause segment; neither belongs in the composer.
+  // Collapse all whitespace to single spaces first (which also flattens
+  // the multi-line segments into one paragraph), then drop the spaces
+  // between CJK characters — English word spacing survives untouched.
+  function cleanSttText(text) {
+    return text
+      .replace(/\s+/g, ' ')
+      .replace(/([\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])/g, '$1')
+      .trim();
+  }
+
+  // Type the transcription into the composer one character at a time —
+  // the "交互动画" the user asked for ("慢而明显, 2~4 秒"): per-character
+  // gaps follow an accelerating exponential curve, from ~240-310ms on
+  // the first character down to a ~16ms floor, with the total runtime
+  // scaled to the text length (short sentences ≈1.6s, a long paragraph
+  // ≈3.5s). Every chunk goes through the native setter + input event so
+  // dsh's draft stays live, and when the last character lands the
+  // composer holds the complete final text — the one and only state,
+  // with no second copy ever shown (previously the overlay flashed the
+  // raw transcription, then swapped to the textarea 900ms later: the
+  // "出现一下→格式很奇怪→再变化" report). Interruptible: tapping the input
+  // (wants to edit) or the send button (wants to send now) aborts to
+  // the full text instantly — see abortVoiceTypingToFull.
+  const VOICE_TYPE_MIN_DELAY_MS = 16;
+  const VOICE_TYPE_DECAY = 0.9;
+  // Total animation time for a text of charCount characters, clamped to
+  // the 1.6-3.8s range the user picked.
+  const VOICE_TYPE_TOTAL_MS = (charCount) =>
+    Math.max(1600, Math.min(3800, 900 + 55 * charCount));
+  // Per-gap delays whose sum is exactly the target total: normalized
+  // exponential weights (decay^i), so early gaps are wide and later
+  // ones shrink — "开头慢, 后面巴啦啦变快". The floor keeps the tail from
+  // out-running React's per-input render.
+  function voiceTypeDelays(charCount) {
+    let weightSum = 0;
+    const weights = [];
+    for (let i = 0; i < charCount; i++) {
+      const w = Math.pow(VOICE_TYPE_DECAY, i);
+      weights.push(w);
+      weightSum += w;
+    }
+    const total = VOICE_TYPE_TOTAL_MS(charCount);
+    return weights.map((w) => Math.max(VOICE_TYPE_MIN_DELAY_MS, (total * w) / weightSum));
+  }
+  let voiceTypingTimer = null;
+  let voiceTypingChars = null;
+  let voiceTypingIndex = 0;
+
+  function isVoiceTyping() {
+    return voiceTypingChars !== null;
+  }
+
+  function finishVoiceTyping() {
+    if (voiceTypingTimer !== null) {
+      clearTimeout(voiceTypingTimer);
+      voiceTypingTimer = null;
+    }
+    voiceTypingChars = null;
+    voiceTypingIndex = 0;
+  }
+
+  // Stop the animation and put the complete text in the composer in one
+  // step. Used when the user taps the input to edit or hits send mid-
+  // animation — sending must never fire with a half-typed sentence, and
+  // editing a live-typing textarea is hopeless.
+  function abortVoiceTypingToFull() {
+    if (!isVoiceTyping()) return;
+    const full = voiceTypingChars.join('');
+    finishVoiceTyping();
+    fillComposerText(full);
+  }
+
+  function typeVoiceTextIntoComposer(text) {
+    finishVoiceTyping();
+    const chars = Array.from(text);
+    if (chars.length === 0) return;
+    const delays = voiceTypeDelays(chars.length);
+    voiceTypingChars = chars;
+    voiceTypingIndex = 0;
+    const tick = () => {
+      voiceTypingIndex++;
+      fillComposerText(chars.slice(0, voiceTypingIndex).join(''));
+      if (voiceTypingIndex >= chars.length) {
+        finishVoiceTyping();
+        return;
+      }
+      voiceTypingTimer = setTimeout(tick, delays[voiceTypingIndex - 1]);
+    };
+    tick();
+  }
+
+  // Interrupts: capture-phase, so they run before dsh's own handlers. A
+  // tap on the composer (user reaching for the keyboard) or on the send
+  // button (user wants to send now) stops the animation and jumps to the
+  // full text; dsh's own send handler then reads the complete draft as
+  // usual. touchstart/mousedown cover every platform and fire earlier
+  // than focus/click; focus and the send-button click stay as
+  // belt-and-suspenders (keyboard-summoned focus, non-pointer clicks).
+  const abortOnVoiceComposerTap = (event) => {
+    if (!isMobile() || !isVoiceTyping()) return;
+    if (event.target.closest('.uV2eYG_input') || event.target.closest('.uV2eYG_primary')) {
+      abortVoiceTypingToFull();
+    }
+  };
+  document.addEventListener('touchstart', abortOnVoiceComposerTap, true);
+  document.addEventListener('mousedown', abortOnVoiceComposerTap, true);
+  document.addEventListener(
+    'focus',
+    (event) => {
+      if (!isMobile() || !isVoiceTyping()) return;
+      const el = event.target;
+      if (el.classList && el.classList.contains('uV2eYG_input')) abortVoiceTypingToFull();
+    },
+    true
+  );
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (!isMobile() || !isVoiceTyping()) return;
+      if (event.target.closest('.uV2eYG_primary')) abortVoiceTypingToFull();
+    },
+    true
+  );
 
   async function startVoiceRecording(overlay) {
     if (voiceRecorder || isVoiceMidFlow(overlay)) return;
@@ -1634,14 +1765,17 @@
       clearTimeout(timeoutId);
       const data = await res.json();
       if (data && data.text) {
-        const textLayer = overlay.querySelector('.ds-mobile-voice-text');
-        textLayer.textContent = data.text;
-        setVoiceState(overlay, 'ds-mobile-voice-done');
-        fillComposerText(data.text);
-        setTimeout(() => {
-          overlay.classList.add('ds-mobile-voice-hidden');
-          setVoiceState(overlay, null);
-        }, VOICE_DONE_DISPLAY_MS);
+        // No more overlay preview: showing the raw transcription on the
+        // overlay and then swapping to the textarea 900ms later was the
+        // "出现一下→格式很奇怪→再变化" report (different type, single-line
+        // ellipsis vs the real input's wrap). Step aside immediately and
+        // type the cleaned text into the real input character by
+        // character, so the composer's text IS the final text the whole
+        // way through — nothing changes after the animation settles.
+        const text = cleanSttText(data.text);
+        overlay.classList.add('ds-mobile-voice-hidden');
+        setVoiceState(overlay, null);
+        typeVoiceTextIntoComposer(text);
       } else {
         showVoiceError(overlay, '没听清,再试一次');
       }
@@ -1775,4 +1909,14 @@
     bindSendButtonForVoiceRecall();
     recallVoiceOverlayWhenInputEmpty();
   }, 1000);
+
+  // Debug/test hook: lets the Electron harness drive the type-in
+  // animation with canned text (the real flow needs a microphone). Never
+  // referenced by the UI; harmless in production.
+  window.__dsVoiceDebug = {
+    cleanSttText,
+    typeVoiceTextIntoComposer,
+    abortVoiceTypingToFull,
+    isVoiceTyping,
+  };
 })();
