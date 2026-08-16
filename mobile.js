@@ -263,27 +263,26 @@
   // showing — the "从没成功过" report. Anchoring on the time element is
   // the reliable handle: every stats row has one, and its closest
   // *_actions ancestor is exactly the row to prune.
+  // Keep ONLY the deepdiving marker in per-message stats footers, and
+  // drop everything else (用时 / 首 token / tok/s / the clock time).
+  // Previous versions anchored on guessed class names (*turnStatus,
+  // *_timeStart) and kept missing the real row on the phone. This
+  // version is structure-agnostic: any leaf text node that looks like a
+  // stat (short, matches 用时/首 token/tok/s/ttft or a bare HH:MM clock)
+  // is emptied — deepdiving/深度思考 never matches, so it survives, and
+  // empty spans are swept so rows don't leave a trail of separators.
+  // Re-runs every poll in case dsh re-renders a row later.
   function trimTurnStatusStats() {
     if (!isMobile()) return;
-    document.querySelectorAll('[class$="_timeStart"]').forEach((timeEl) => {
-      const row = timeEl.closest('[class$="_actions"]') || timeEl.parentElement;
-      if (!row || row.dataset.dsTrimmed) return;
-      row.dataset.dsTrimmed = '1';
-      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
-      const dead = [];
-      let node;
-      while ((node = walker.nextNode())) {
-        const t = node.textContent || '';
-        if (/用时|首 token|tok\/s|tokensPerSecond|ttft/.test(t)) dead.push(node);
+    document.querySelectorAll('*').forEach((el) => {
+      if (el.children.length > 0) return;
+      const t = (el.textContent || '').trim();
+      if (t.length > 0 && t.length < 30 && /用时|首 ?token|tok\/s|tokensPerSecond|ttft|^\d{1,2}:\d{2}$/.test(t)) {
+        el.textContent = '';
       }
-      dead.forEach((node) => {
-        node.textContent = '';
-      });
-      // Drop the now-empty separator/dot spans so the row reads
-      // "21:33 · deepdiving" instead of "21:33 · · ·".
-      row.querySelectorAll('span, div').forEach((el) => {
-        if (!el.textContent.trim() && !el.querySelector('*')) el.remove();
-      });
+    });
+    document.querySelectorAll('span, div').forEach((el) => {
+      if (!el.textContent.trim() && !el.querySelector('*')) el.remove();
     });
   }
 
