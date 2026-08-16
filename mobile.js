@@ -1077,12 +1077,18 @@
   const VOICE_DONE_DISPLAY_MS = 900;
   const VOICE_ERROR_DISPLAY_MS = 1500;
   const VOICE_UPLOAD_TIMEOUT_MS = 20000;
+  // Below this, a touch is a tap (type manually); at or above, it's a
+  // hold (start recording). ~150ms is roughly how long a normal tap
+  // lasts; 200ms gives a little slack without making holds feel laggy.
+  const VOICE_HOLD_THRESHOLD_MS = 200;
 
   let voiceStream = null;
   let voiceRecorder = null;
   let voiceChunks = [];
   let voiceRecordingStartedAt = 0;
   let voiceReleaseRequested = false;
+  let voiceHoldTimer = null;
+  let voiceHoldArmed = false;
 
   function getComposerGrow() {
     return document.querySelector('.uV2eYG_grow');
@@ -1103,6 +1109,19 @@
 
   function isVoiceMidFlow(overlay) {
     return VOICE_STATE_CLASSES.some((cls) => overlay.classList.contains(cls));
+  }
+
+  // A tap (touch released before VOICE_HOLD_THRESHOLD_MS) means the user
+  // wants to type, not talk — hide the overlay and hand focus to the
+  // real textarea so the keyboard comes up. Called synchronously from
+  // the touchend handler, which is what lets .focus() actually trigger
+  // the keyboard on iOS/Android (a focus() call outside a user-gesture
+  // callback is silently ignored by mobile browsers).
+  function focusRealInputForTyping(overlay) {
+    const input = getVoiceComposerInput();
+    if (!input) return;
+    overlay.classList.add('ds-mobile-voice-hidden');
+    input.focus();
   }
 
   function showVoiceError(overlay, message) {
@@ -1130,16 +1149,11 @@
 
     overlay = document.createElement('div');
     overlay.className = VOICE_OVERLAY_CLASS;
-
-    // The overlay itself is pointer-events:none (see mobile.css) so it
-    // never blocks taps to the real textarea underneath — only this
-    // small centered "hit" pill around the wave graphic is actually
-    // tappable. role/aria-label live here, on the real interactive
-    // target, not on the pass-through overlay wrapper.
-    const hit = document.createElement('div');
-    hit.className = 'ds-mobile-voice-hit';
-    hit.setAttribute('role', 'button');
-    hit.setAttribute('aria-label', '按住说话');
+    // Second revision: this is the single hit-target again (not split
+    // into a pointer-events:none wrapper + small inner pill — see the
+    // note above bindVoiceOverlay for why that approach was replaced).
+    overlay.setAttribute('role', 'button');
+    overlay.setAttribute('aria-label', '轻点打字,按住说话');
 
     const wave = document.createElement('div');
     wave.className = 'ds-mobile-voice-wave';
@@ -1148,14 +1162,12 @@
       bar.style.height = h + 'px';
       wave.appendChild(bar);
     }
-    hit.appendChild(wave);
+    overlay.appendChild(wave);
 
     const busyDots = document.createElement('div');
     busyDots.className = 'ds-mobile-voice-busy-dots';
     busyDots.textContent = '···';
-    hit.appendChild(busyDots);
-
-    overlay.appendChild(hit);
+    overlay.appendChild(busyDots);
 
     const textLayer = document.createElement('div');
     textLayer.className = 'ds-mobile-voice-text';
@@ -1266,33 +1278,57 @@
     setVoiceState(overlay, null);
   }
 
+  // Second revision: the first attempt made the overlay pointer-events:none
+  // with only a small inner "hit" pill actually tappable, so taps outside
+  // that pill would pass through to the real textarea. That fixed "can't
+  // reach the input at all" but required aiming at a small target to type
+  // — user feedback was that a tap ANYWHERE on the composer should focus
+  // the real input (keyboard comes up), while a press-and-hold ANYWHERE
+  // starts recording, same as a lot of chat apps do it. That can't be done
+  // with pointer-events/positioning alone since both gestures start at the
+  // same point — it has to be timing-based: touchstart arms a timer, and
+  // whether touchend fires before or after that timer decides tap vs hold.
   function bindVoiceOverlay() {
     const overlay = ensureVoiceOverlay();
     if (!overlay || overlay.dataset.dsBound) return;
     overlay.dataset.dsBound = '1';
-    // Listeners live on .ds-mobile-voice-hit, not the overlay wrapper —
-    // the wrapper is pointer-events:none (see mobile.css) so taps
-    // outside this small pill pass straight through to the real
-    // textarea, letting the user type manually whenever they're not
-    // actually pressing the wave graphic itself.
-    const hit = overlay.querySelector('.ds-mobile-voice-hit');
-    if (!hit) return;
-    hit.addEventListener(
+    overlay.addEventListener(
       'touchstart',
-      (event) => {
-        event.preventDefault();
-        startVoiceRecording(overlay);
+      () => {
+        if (isVoiceMidFlow(overlay)) return;
+        voiceHoldArmed = false;
+        clearTimeout(voiceHoldTimer);
+        voiceHoldTimer = setTimeout(() => {
+          voiceHoldTimer = null;
+          // Set BEFORE calling startVoiceRecording, not after — its
+          // getUserMedia await means the CSS recording state lags behind
+          // by however long the permission prompt takes, so this flag
+          // (not a class check) is what touchend relies on to know a
+          // hold actually happened, even during that pending window.
+          voiceHoldArmed = true;
+          startVoiceRecording(overlay);
+        }, VOICE_HOLD_THRESHOLD_MS);
       },
-      { passive: false }
+      { passive: true }
     );
-    hit.addEventListener(
-      'touchend',
-      (event) => {
-        event.preventDefault();
-        stopVoiceRecording(overlay);
-      },
-      { passive: false }
-    );
+    overlay.addEventListener('touchend', (event) => {
+      if (voiceHoldTimer) {
+        // Released before the hold threshold — a tap, not a hold.
+        clearTimeout(voiceHoldTimer);
+        voiceHoldTimer = null;
+        focusRealInputForTyping(overlay);
+        return;
+      }
+      if (!voiceHoldArmed) return; // touchstart was ignored (isVoiceMidFlow) — nothing to stop
+      voiceHoldArmed = false;
+      event.preventDefault();
+      // Unconditional — even if voiceRecorder is still null because
+      // getUserMedia's permission prompt hasn't resolved yet, this needs
+      // to reach stopVoiceRecording so it can set voiceReleaseRequested
+      // and prevent the recording from starting late with no matching
+      // touchend left to stop it.
+      stopVoiceRecording(overlay);
+    });
   }
 
   function bindSendButtonForVoiceRecall() {

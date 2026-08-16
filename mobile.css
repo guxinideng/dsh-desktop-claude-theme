@@ -844,54 +844,40 @@
    button's own background color, so this tracks whatever theme is
    active instead of a color hardcoded here. See
    docs/superpowers/specs/2026-08-16-voice-to-text-composer-design.md */
-/* pointer-events:none on the overlay itself — it must NOT swallow taps
-   across the whole textarea, or the user could never reach the real
-   input to type manually (a real bug found in review: the overlay used
-   to be a full opaque hit-target, blocking typing whenever it was
-   visible — i.e. most of the time). Only .ds-mobile-voice-hit, a small
-   centered pill around the wave graphic, re-enables pointer-events —
-   that's the actual "press here to talk" target. Anywhere else in the
-   overlay's footprint passes taps straight through to .uV2eYG_input
-   underneath. */
+/* Second revision: the overlay is back to being the single hit-target
+   (not split into a pass-through wrapper + small inner pill) — but this
+   time it's mobile.js's job to keep typing reachable, by distinguishing
+   a quick tap (focuses the real textarea, brings up the keyboard) from
+   a press-and-hold (starts recording) based on how long the touch is
+   held, not by which pixel it landed on. See the "second attempt" note
+   in mobile.js right above bindVoiceOverlay for the full reasoning.
+   -webkit-touch-callout:none suppresses iOS's long-press
+   selection/magnifier popup, which would otherwise fight the
+   long-press-to-record gesture. */
 .ds-mobile-voice-overlay {
   position: absolute;
   inset: 0;
   z-index: 5;
-  pointer-events: none;
+  border-radius: 10px;
+  border: 1px solid rgba(127, 127, 127, 0.22);
+  background: rgba(255, 255, 255, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
   overflow: hidden;
+}
+body[data-ds-dark-theme] .ds-mobile-voice-overlay {
+  background: rgba(0, 0, 0, 0.25);
 }
 .ds-mobile-voice-overlay.ds-mobile-voice-hidden {
   display: none;
 }
-.ds-mobile-voice-hit {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 10px 18px;
-  border-radius: 10px;
-  border: 1px solid rgba(127, 127, 127, 0.22);
-  background: rgba(255, 255, 255, 0.6);
-  cursor: pointer;
-  -webkit-user-select: none;
-  user-select: none;
-}
-body[data-ds-dark-theme] .ds-mobile-voice-hit {
-  background: rgba(0, 0, 0, 0.25);
-}
-.ds-mobile-voice-overlay.ds-mobile-voice-recording .ds-mobile-voice-hit {
+.ds-mobile-voice-overlay.ds-mobile-voice-recording {
   border-color: var(--ds-voice-accent, #d85a30);
-}
-/* Busy/done/error: recording is over, nothing here should keep
-   intercepting taps — let the user reach the real textarea immediately
-   instead of waiting out the auto-revert timers. */
-.ds-mobile-voice-overlay.ds-mobile-voice-busy .ds-mobile-voice-hit,
-.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-mobile-voice-hit,
-.ds-mobile-voice-overlay.ds-mobile-voice-error .ds-mobile-voice-hit {
-  pointer-events: none;
 }
 .ds-mobile-voice-wave {
   display: flex;
