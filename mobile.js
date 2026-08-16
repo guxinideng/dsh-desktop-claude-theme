@@ -1971,7 +1971,16 @@
     if (!sendBtn || sendBtn.dataset.dsVoiceRecallBound) return;
     sendBtn.dataset.dsVoiceRecallBound = '1';
     sendBtn.addEventListener('click', () => {
-      setTimeout(recallVoiceOverlayAfterSend, 400);
+      setTimeout(() => {
+        // dsh refocuses the composer after a send; on a phone that
+        // summons the keyboard out of nowhere the moment 发送 is tapped
+        // (user report). Blur it — the overlay is back in its idle wave,
+        // and tapping the composer is the user's own next step when they
+        // actually want to type again.
+        const input = getVoiceComposerInput();
+        if (input && document.activeElement === input) input.blur();
+        recallVoiceOverlayAfterSend();
+      }, 400);
     });
   }
 
