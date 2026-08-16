@@ -959,13 +959,30 @@
     display: none !important;
   }
 
-  /* dsh's 内测声明 welcome notice (the onboarding overlay) must not
-     appear on a phone at all — auto-dismissing it in JS was good but
-     still flashed it for a moment. Hide the overlay chrome outright;
-     desktop keeps it. */
+  /* dsh's 内测声明 welcome notice must not appear on a phone at all.
+     The JS auto-dismiss alone still let it flash, so it was paired with
+     hiding [class*='onboarding*'] — but the notice does not render
+     through those at all. Read off the live dialog: it mounts in dsh's
+     generic dialog container (_root_*) with its own content classes
+     under a jLrgrW_ prefix, and nothing in that tree mentions
+     onboarding, so the rule never matched a single element and the
+     notice kept showing (user saw it in a private window, where dsh has
+     no stored acknowledgement to skip it).
+
+     The generic container can't be hidden on its own — the settings
+     panel and confirm dialogs mount in one too. :has() keys off the
+     notice's own content prefix instead: verified against the live page
+     it matches exactly 1 of the 17 _root_ containers present.
+
+     Both prefixes are build hashes and will drift when dsh's frontend
+     is rebuilt, the same fragility every selector in this file carries.
+     The JS auto-dismiss stays as the backstop: it clicks 继续, which is
+     what makes dsh record the acknowledgement so the notice stops being
+     rendered at all on later loads. */
   [class*='onboardingOverlay'],
   [class*='onboardingMask'],
-  [class*='onboardingStage'] {
+  [class*='onboardingStage'],
+  [class*='_root_']:has([class*='jLrgrW_']) {
     display: none !important;
   }
 
