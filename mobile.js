@@ -142,6 +142,22 @@
     });
   }
 
+  // Workspace picker's "添加工作区…" entry starts a creation flow that
+  // needs desktop-side setup (picking a local folder) — there's no
+  // equivalent on a phone, so the entry is dead weight in a menu that,
+  // with it gone, is just "here's your workspace" (user report). Matched
+  // by text like the settings rows above: this menu component is shared
+  // with the model/Agent-preset pickers, so the selector alone
+  // ([role="menu"] [role="menuitem"]) isn't specific enough — the text
+  // check is what keeps this from touching those.
+  function hideAddWorkspaceMenuItem() {
+    document.querySelectorAll('[role="menu"] [role="menuitem"]').forEach((item) => {
+      if (item.textContent.trim().startsWith('添加工作区')) {
+        item.classList.add('ds-mobile-hide');
+      }
+    });
+  }
+
   // Composer model-select button: dsh's own label is "DeepSeek-V4-Flash"
   // — the DeepSeek prefix is redundant here specifically (this whole
   // theme only exists for DeepSeek's own build of dsh, so every model in
@@ -187,6 +203,7 @@
     observeDshCollapseState();
     hideDisabledSettingsNavTabs();
     hideSettingsAgentPresetRow();
+    hideAddWorkspaceMenuItem();
     stripDeepSeekPrefix();
     observeModelLabel();
     syncTrajectoryTabStrip();
@@ -283,6 +300,25 @@
     if (!isMobile()) return;
     const scroll = document.querySelector('.wSkVaW_scrollBody');
     if (!scroll) return;
+    // TEMP diagnosis: ship the leaf-text reality of the message area so
+    // we can see what the stats row actually looks like on the phone.
+    if (!sessionStorage.getItem('dsDiag2Sent')) {
+      const samples = [];
+      scroll.querySelectorAll('*').forEach((el) => {
+        if (el.children.length > 0) return;
+        const t = (el.textContent || '').trim();
+        if (!t) return;
+        const chain = [];
+        let cur = el;
+        for (let i = 0; i < 5 && cur; i++) {
+          chain.push((typeof cur.className === 'string' ? cur.className : cur.tagName).slice(0, 40));
+          cur = cur.parentElement;
+        }
+        if (t.length < 40) samples.push({ t: t.slice(0, 30), chain: chain.join(' < ') });
+      });
+      sessionStorage.setItem('dsDiag2Sent', '1');
+      fetch('/__ds_theme/diag', { method: 'POST', body: JSON.stringify(samples.slice(0, 60)) }).catch(() => {});
+    }
     scroll.querySelectorAll('*').forEach((el) => {
       if (el.children.length > 0) return;
       const t = el.textContent || '';
@@ -416,6 +452,7 @@
     observeDshCollapseState();
     hideDisabledSettingsNavTabs();
     hideSettingsAgentPresetRow();
+    hideAddWorkspaceMenuItem();
     syncSettingsPanelHeight();
     stripDeepSeekPrefix();
     observeModelLabel();
