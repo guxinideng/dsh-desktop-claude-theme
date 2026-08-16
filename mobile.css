@@ -996,4 +996,19 @@
   body[data-ds-dark-theme] {
     --dsw-font-family: 'Songti SC', ui-serif, Georgia, serif !important;
   }
+
+  /* The --dsw-font-family variable above doesn't reach the composer
+     textarea — dsh sets a more specific rule there, `font-family:
+     "DshChipCell", var(--dsw-font-family)` on .uV2eYG_input plus its
+     two measurement-mirror siblings (.uV2eYG_mirror/.uV2eYG_backdrop,
+     used to size the textarea as it grows — all three must stay in the
+     same font or that measurement goes wrong). DshChipCell is a real,
+     successfully-loading font, so it wins over the variable outright;
+     no amount of changing the variable's value affects this element.
+     Needs its own !important override, all three elements together. */
+  .uV2eYG_input,
+  .uV2eYG_mirror,
+  .uV2eYG_backdrop {
+    font-family: 'Songti SC', ui-serif, Georgia, serif !important;
+  }
 }
