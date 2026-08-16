@@ -46,6 +46,8 @@
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
+const os = require('os');
+const crypto = require('crypto');
 const path = require('path');
 const httpProxy = require('http-proxy');
 const { spawn } = require('child_process');
@@ -63,6 +65,16 @@ const TLS_OPTS =
   process.env.TLS_CERT_FILE && process.env.TLS_KEY_FILE
     ? { cert: fs.readFileSync(process.env.TLS_CERT_FILE), key: fs.readFileSync(process.env.TLS_KEY_FILE) }
     : null;
+
+// STT_MODEL_FILE  path to a ggml whisper.cpp model (default: bundled
+//                 whisper-models/ggml-large-v3-turbo-q5_0.bin next to this
+//                 file — see docs/superpowers/plans/2026-08-16-voice-to-text-composer.md)
+// STT_WHISPER_BIN whisper.cpp CLI binary                       (default "whisper-cli")
+// STT_TIMEOUT_MS  max time allowed for ffmpeg + whisper-cli     (default 30000)
+const STT_MODEL_FILE =
+  process.env.STT_MODEL_FILE || path.join(__dirname, 'whisper-models', 'ggml-large-v3-turbo-q5_0.bin');
+const STT_WHISPER_BIN = process.env.STT_WHISPER_BIN || 'whisper-cli';
+const STT_TIMEOUT_MS = Number(process.env.STT_TIMEOUT_MS) || 30000;
 const DSH_URL = `http://127.0.0.1:${DSH_PORT}`;
 const COOKIE_NAME = 'dsh_gateway_token';
 // However long IDLE_MS is, poll for it at a matching cadence — capped to
@@ -180,6 +192,79 @@ function getCookie(req, name) {
   return null;
 }
 
+function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+function runCommand(cmd, args, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args);
+    let stderr = '';
+    child.stderr.on('data', (d) => {
+      stderr += d;
+    });
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`${cmd} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`${cmd} exited ${code}: ${stderr.slice(-500)}`));
+    });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+// Local speech-to-text: audio in, transcribed text out — see
+// docs/superpowers/specs/2026-08-16-voice-to-text-composer-design.md for
+// why this runs on the Mac (whisper.cpp + Metal) instead of a cloud API
+// or the VPS (1 core / 1GB RAM, can't run a real STT model).
+async function handleStt(req, res) {
+  const id = crypto.randomUUID();
+  const inputPath = path.join(os.tmpdir(), `dsh-stt-${id}.input`);
+  const wavPath = path.join(os.tmpdir(), `dsh-stt-${id}.wav`);
+  const outBase = path.join(os.tmpdir(), `dsh-stt-${id}`);
+  const txtPath = `${outBase}.txt`;
+
+  try {
+    const audio = await readRequestBody(req);
+    if (audio.length === 0) {
+      res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'empty audio' }));
+      return;
+    }
+    fs.writeFileSync(inputPath, audio);
+
+    await runCommand('ffmpeg', ['-y', '-i', inputPath, '-ar', '16000', '-ac', '1', wavPath], STT_TIMEOUT_MS);
+    await runCommand(
+      STT_WHISPER_BIN,
+      ['-m', STT_MODEL_FILE, '-f', wavPath, '-l', 'zh', '-nt', '-np', '-otxt', '-of', outBase],
+      STT_TIMEOUT_MS
+    );
+
+    const text = fs.readFileSync(txtPath, 'utf8').trim();
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ text }));
+  } catch (err) {
+    console.error('[gateway] stt error:', err.message);
+    res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'stt failed' }));
+  } finally {
+    for (const p of [inputPath, wavPath, txtPath]) {
+      fs.unlink(p, () => {});
+    }
+  }
+}
+
 // Returns 'header' | 'cookie' | 'query' | null. 'query' is the one case the
 // caller needs to react to (by setting the cookie) — header/cookie are
 // already durable across requests.
@@ -292,6 +377,12 @@ const requestHandler = async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
   if (pathname in THEME_ASSETS) {
     serveThemeAsset(pathname, res);
+    return;
+  }
+
+  if (pathname === '/__ds_theme/stt' && req.method === 'POST') {
+    touch();
+    await handleStt(req, res);
     return;
   }
 
