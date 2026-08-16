@@ -300,24 +300,25 @@
     if (!isMobile()) return;
     const scroll = document.querySelector('.wSkVaW_scrollBody');
     if (!scroll) return;
-    // TEMP diagnosis: ship the leaf-text reality of the message area so
-    // we can see what the stats row actually looks like on the phone.
+    // TEMP diagnosis: ship the REAL message-footer structure — the row
+    // with 复制/好回答/有问题的回答/在线对话分值 + time/用时/token.
     if (!sessionStorage.getItem('dsDiag2Sent')) {
-      const samples = [];
-      scroll.querySelectorAll('*').forEach((el) => {
-        if (el.children.length > 0) return;
+      const hits = [];
+      document.querySelectorAll('*').forEach((el) => {
         const t = (el.textContent || '').trim();
         if (!t) return;
-        const chain = [];
-        let cur = el;
-        for (let i = 0; i < 5 && cur; i++) {
-          chain.push((typeof cur.className === 'string' ? cur.className : cur.tagName).slice(0, 40));
-          cur = cur.parentElement;
+        if (/好回答|有问题的回答|在线对话|复制/.test(t) && t.length < 120) {
+          const chain = [];
+          let cur = el;
+          for (let i = 0; i < 6 && cur; i++) {
+            chain.push((typeof cur.className === 'string' ? cur.className : cur.tagName).slice(0, 50));
+            cur = cur.parentElement;
+          }
+          hits.push({ t: t.slice(0, 80), chain: chain.join(' < '), html: el.outerHTML.slice(0, 400) });
         }
-        if (t.length < 40) samples.push({ t: t.slice(0, 30), chain: chain.join(' < ') });
       });
       sessionStorage.setItem('dsDiag2Sent', '1');
-      fetch('/__ds_theme/diag', { method: 'POST', body: JSON.stringify(samples.slice(0, 60)) }).catch(() => {});
+      fetch('/__ds_theme/diag', { method: 'POST', body: JSON.stringify(hits.slice(0, 20)) }).catch(() => {});
     }
     scroll.querySelectorAll('*').forEach((el) => {
       if (el.children.length > 0) return;
