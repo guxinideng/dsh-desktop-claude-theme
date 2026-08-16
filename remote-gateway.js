@@ -399,11 +399,35 @@ const THEME_ASSETS = {
   },
 };
 
-function serveThemeAsset(pathname, res) {
+// mobile.js/mobile.css are 90KB+ combined; a synchronous read blocks the
+// entire single-threaded event loop for its duration — including any
+// WebSocket traffic and STT uploads in flight at that moment, not just
+// other HTTP requests. Cached by mtime so a plain reload doesn't pay a
+// disk read at all, while still picking up an edited file on its very
+// next request (the mtime check is itself async, so even that is off
+// the event loop).
+const themeAssetCache = new Map(); // pathname -> { mtimeMs, content }
+
+async function serveThemeAsset(pathname, res) {
   const asset = THEME_ASSETS[pathname];
   const cacheControl = asset.binary ? 'public, max-age=86400' : 'no-cache';
-  res.writeHead(200, { 'content-type': asset.type, 'cache-control': cacheControl });
-  res.end(fs.readFileSync(asset.file, asset.binary ? undefined : 'utf8'));
+  try {
+    const stat = await fs.promises.stat(asset.file);
+    const cached = themeAssetCache.get(pathname);
+    let content;
+    if (cached && cached.mtimeMs === stat.mtimeMs) {
+      content = cached.content;
+    } else {
+      content = await fs.promises.readFile(asset.file, asset.binary ? undefined : 'utf8');
+      themeAssetCache.set(pathname, { mtimeMs: stat.mtimeMs, content });
+    }
+    res.writeHead(200, { 'content-type': asset.type, 'cache-control': cacheControl });
+    res.end(content);
+  } catch (err) {
+    console.error('[gateway] theme asset read error:', err.message);
+    res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end('asset read error');
+  }
 }
 
 // main.js injects theme.css into the Electron window at runtime via
@@ -534,7 +558,7 @@ const requestHandler = async (req, res) => {
 
   const pathname = new URL(req.url, 'http://localhost').pathname;
   if (pathname in THEME_ASSETS) {
-    serveThemeAsset(pathname, res);
+    await serveThemeAsset(pathname, res);
     return;
   }
 
