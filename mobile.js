@@ -1250,8 +1250,10 @@
     (event) => {
       const input = event.target.closest('.uV2eYG_input');
       if (!input) return;
-      // The user wants to type — lift the navigation lock right now.
+      // The user wants to type — lift both locks (navigation and
+      // post-send) right now so the keyboard comes up normally.
       lastSessionNavAt = 0;
+      lastSendAt = 0;
       input.readOnly = false;
     },
     true
@@ -1273,8 +1275,9 @@
     if (!isMobile()) return;
     const input = document.querySelector('.uV2eYG_input');
     if (!input) return;
-    const inLock = Date.now() - lastSessionNavAt < KEYBOARD_LOCK_MS;
-    if (inLock) {
+    const inNavLock = Date.now() - lastSessionNavAt < KEYBOARD_LOCK_MS;
+    const inSendLock = Date.now() - lastSendAt < SEND_FOCUS_BLOCK_MS;
+    if (inNavLock || inSendLock) {
       // Re-assert every tick: dsh may replace the textarea or reset its
       // properties on re-render, and the readonly is what actually keeps
       // the keyboard off — blur alone lost this race before.
@@ -1285,34 +1288,28 @@
     }
   }, 150);
 
-  // ── Focus guard: no keyboard right after 发送 ─────────────────────
-  // dsh programmatically refocuses the composer after a send; on a phone
-  // that pops the keyboard the moment 发送 is tapped — and blurring a
-  // beat later only made it flash open-and-shut ("弹出来自己自动收回去
-  // 了"). A user tap produces a trusted focus event; dsh's focus()
-  // calls produce non-trusted ones, so within a short window after the
-  // send button is pressed every non-trusted focus on the composer is
-  // suppressed (unless our own tap-to-type path just allowed one via
-  // focusRealInputForTyping). The keyboard only ever appears when the
-  // user actually touches the composer — or when dsh focuses it outside
-  // the send window (command menu, model pickers, …), which those flows
-  // legitimately need.
+  // ── Post-send focus lock: no keyboard right after 发送/停止 ────────
+  // dsh programmatically refocuses the composer after a send (and after
+  // stopping generation); on a phone that pops the keyboard the moment
+  // the button is tapped — and blurring a beat later only made it flash
+  // open-and-shut ("弹出来自己自动收回去 了"). Within SEND_FOCUS_BLOCK_MS
+  // of a send/stop tap the composer is held readonly, so even if dsh
+  // focuses it the keyboard physically can't appear (a readonly textarea
+  // never summons the iOS keyboard — the same mechanism as the
+  // navigation lock above). The moment the user actually taps the
+  // composer the lock is dropped (see the touchstart handler). Other
+  // flows that focus the composer outside this window — command menu,
+  // model pickers — are untouched.
   const SEND_FOCUS_BLOCK_MS = 1500;
   let lastSendAt = 0;
-  let allowNextProgrammaticFocus = false;
   document.addEventListener(
     'focus',
     (event) => {
       if (!isMobile()) return;
       const el = event.target;
       if (!el.classList || !el.classList.contains('uV2eYG_input')) return;
-      if (event.isTrusted) return; // real tap — let it through
-      if (allowNextProgrammaticFocus) {
-        allowNextProgrammaticFocus = false;
-        return;
-      }
       if (Date.now() - lastSendAt < SEND_FOCUS_BLOCK_MS) {
-        event.preventDefault();
+        el.readOnly = true;
         el.blur();
       }
     },
@@ -1426,14 +1423,15 @@
   // the touchend handler, which is what lets .focus() actually trigger
   // the keyboard on iOS/Android (a focus() call outside a user-gesture
   // callback is silently ignored by mobile browsers).
-  // A tap on the overlay is the user's own "I want to type" gesture, so
-  // the programmatic focus() below is allowed past the focus guard
-  // (which otherwise kills every non-trusted focus — see the guard).
   function focusRealInputForTyping(overlay) {
     const input = getVoiceComposerInput();
     if (!input) return;
     overlay.classList.add('ds-mobile-voice-hidden');
-    allowNextProgrammaticFocus = true;
+    // The user tapped the voice control to type — that's a real intent
+    // to use the keyboard, so lift the post-send lock (readonly would
+    // otherwise swallow the focus without ever summoning it).
+    lastSendAt = 0;
+    input.readOnly = false;
     input.focus();
   }
 
@@ -2005,17 +2003,23 @@
   }
 
   function bindSendButtonForVoiceRecall() {
-    const sendBtn = getSendButton();
-    if (!sendBtn || sendBtn.dataset.dsVoiceRecallBound) return;
-    sendBtn.dataset.dsVoiceRecallBound = '1';
-    sendBtn.addEventListener('click', () => {
-      // dsh will refocus the composer after the send lands; the focus
-      // guard above blocks that (non-trusted focus) within the next
-      // SEND_FOCUS_BLOCK_MS, so the keyboard never appears. This just
-      // brings the overlay back to its idle wave.
-      lastSendAt = Date.now();
-      setTimeout(recallVoiceOverlayAfterSend, 400);
-    });
+    if (document.documentElement.dataset.dsVoiceRecallDelegated) return;
+    document.documentElement.dataset.dsVoiceRecallDelegated = '1';
+    // Delegated on document (capture) so a dsh re-render that replaces
+    // the button element can't orphan the handler.
+    document.addEventListener(
+      'click',
+      (event) => {
+        if (!isMobile()) return;
+        if (!event.target.closest('.uV2eYG_primary')) return;
+        // Same primary slot serves both 发送 and 停止 — either one arms
+        // the post-send focus lock (readonly for SEND_FOCUS_BLOCK_MS)
+        // and recalls the overlay to its idle wave.
+        lastSendAt = Date.now();
+        setTimeout(recallVoiceOverlayAfterSend, 400);
+      },
+      true
+    );
   }
 
   // Recovery safety net: the recall above only fires on the send BUTTON's
