@@ -160,6 +160,11 @@
     margin: 0 !important;
     border-radius: 0 20px 20px 0 !important;
     box-sizing: border-box !important;
+    /* Same pan-y as the settings panel: native vertical scrolling stays
+       with the browser, horizontal drags belong to mobile.js's pointer
+       events — and keeping this file free of non-passive touchmove
+       listeners means a scroll frame never waits on JS. */
+    touch-action: pan-y !important;
     /* Clear the notch/status-bar and home-indicator safe areas instead of
        drawing under them. */
     padding-top: env(safe-area-inset-top) !important;
@@ -278,8 +283,17 @@
      with the selected row's own background, so the two can never be
      confused for each other regardless of what color that background is. */
   .YDXeBa_sessionRow.ds-mobile-row-pressed {
-    transform: scale(0.97);
-    transition: transform 0.1s ease;
+    transform: none !important;
+  }
+  /* Session-row tap feedback is gone entirely (2026-08-16): the press
+     used to scale the row AND swap its background, which read on a real
+     phone as a stray shadow/highlight wherever the finger landed, and it
+     served nothing — the tap navigates anyway. The selected row keeps
+     its own background (the :not(.selected) guard below); only the
+     transient :active/:hover states are suppressed. */
+  .YDXeBa_sessionRow:not(.YDXeBa_selected):active,
+  .YDXeBa_sessionRow:not(.YDXeBa_selected):hover {
+    background-color: transparent !important;
   }
 
   /* 对话/轨迹 tab switcher only earns its keep with more than one real
@@ -288,6 +302,15 @@
      active, only the switcher UI. */
   .wSkVaW_tabs {
     display: none !important;
+  }
+  /* ...but dsh can still navigate into the trajectory view from inside a
+     conversation (a tool-call row, the details panel), and with the strip
+     gone there's no way back. mobile.js adds this class whenever the
+     active tab is 轨迹, re-showing the strip so it can be tapped back to
+     对话; it drops again as soon as 对话 is active. */
+  .wSkVaW_tabs.ds-mobile-tabs-visible {
+    display: flex !important;
+    gap: 20px !important;
   }
 
   /* The rename/delete "…" button (.YDXeBa_rowActions) is display:none by
@@ -367,6 +390,25 @@
   .VOzbGW_overlay {
     padding: 0 !important;
     justify-content: flex-start !important;
+    /* dsh's own overlay is align-items:center (it centers its dialogs) —
+       that vertically centers the settings panel inside the viewport, so
+       once the panel's height is synced to the sidebar's (796px vs 812px
+       viewport) it sits 8px lower than the sidebar, which is pinned to
+       the top. Flex-start puts both drawer levels flush to the top. */
+    align-items: flex-start !important;
+  }
+  /* The settings dialog's own mask layer (.VOzbGW_mask, a child of the
+     overlay that covers everything outside the panel) is what actually
+     dims and blurs the area to the right of the drawer — background
+     rgba(0,0,0,.24) + backdrop-filter blur(2px) from dsh's own modal
+     stylesheet (found in the shipped CSS: `--dsw-mask-blur: blur(2px)`).
+     That reads as a dark smudge beside the panel on a phone, so both the
+     tint and the blur go: the area outside the drawer just shows the
+     page underneath at its normal color. */
+  .VOzbGW_mask {
+    background: transparent !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
   /* Grid, not flex-column: .VOzbGW_nav and .VOzbGW_content are sibling
      children of .VOzbGW_panel, and .VOzbGW_header (the 打开配置文件 /
@@ -389,6 +431,34 @@
     max-width: min(82vw, 320px) !important;
     max-height: 100dvh !important;
     border-radius: 0 20px 20px 0 !important;
+    /* No shadow: dsh's own modal stylesheet gives the dialog a drop
+       shadow, but this panel slides via transform (see the slide-in below
+       and mobile.js's drag), and a box-shadow on an element that's being
+       transformed renders inconsistently mid-slide on phones — a smeared
+       or clipped shadow trailing the panel's left edge as it moves. */
+    box-shadow: none !important;
+    /* Explicit pan-y (body has it too, but touch-action doesn't inherit):
+       the browser keeps native vertical panning here, and horizontal
+       gestures are left to mobile.js's pointer-event drags — no
+       preventDefault needed, so no non-passive touchmove listener stands
+       between every scroll frame and the compositor (the scroll-jank
+       source when the drag used touch events). */
+    touch-action: pan-y !important;
+    /* Level-two slide-in, mirroring the sidebar's own 0.25s ease open —
+       the panel is a portal re-mounted on every open, so a plain animation
+       replays each time dsh mounts it. The transform only lives for the
+       animation's 250ms; mobile.js's drag sets its own inline transform
+       (and disables this animation) the moment a finger lands on the
+       panel, so the two never fight for control of the same property. */
+    animation: ds-settings-in 0.25s ease;
+  }
+  @keyframes ds-settings-in {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(0);
+    }
   }
   .VOzbGW_nav {
     grid-row: 1 !important;
@@ -450,7 +520,24 @@
      guessing at. Gone outright rather than fixed: nothing else on this
      row is broken, there's just no version of "why is this one greyed
      out" worth explaining in a mobile settings screen. */
-  .oY77xG_row {
+  /* Element-qualified: the generic row rule below
+     (.VOzbGW_options [class$='_row']) has equal specificity but sits later
+     in the file, so it kept winning — the div anchor raises this one
+     above it. */
+  .VOzbGW_options div.oY77xG_row {
+    display: none !important;
+  }
+
+  /* Header buttons are gone on mobile: 打开配置文件 is a desktop-only
+     action (nobody opens a config file from a phone), and with it the
+     close button is redundant — dismissal is handled by the swipe/blank-tap
+     gestures in mobile.js, which replay a click on this same hidden close
+     button to let dsh's own portal state unwind. The header row collapses
+     to nothing, leaving the nav tab strip to span the full panel width. */
+  .VOzbGW_actions {
+    display: none !important;
+  }
+  .VOzbGW_close {
     display: none !important;
   }
 
@@ -473,4 +560,364 @@
     width: auto !important;
     max-width: 220px !important;
   }
+
+  /* ── Settings drawer: row-level visual cleanup (2026-08-16) ──────────
+     The grid skeleton above got the panel into a left-flush drawer, but
+     the rows inside were still dsh's desktop density: each row is a
+     two-column flex (title+description on the left, a dropdown selector
+     on the right) where the description wrapped to 3 cramped lines in
+     the ~150px left column while the selector sat beside it, and the
+     外观 group rendered its three theme previews as full-width 84px-tall
+     blocks stacked vertically — on a 320px panel that reads as cramped
+     and mismatched (the "乱" on a real phone). These rules restyle only
+     the content area below the tab strip, matching rows by their class
+     *suffix* — every settings row in dsh shares the _row/_rowText/_title/
+     _desc/_selector suffix pattern across its hashed module names, so a
+     single suffix selector covers them all. Same hash-fragility as the
+     rest of this file, but contained to .VOzbGW_options. */
+  .VOzbGW_panel {
+    background: #faf9f5 !important;
+  }
+  .VOzbGW_options {
+    padding: 4px 16px 28px !important;
+    overflow-y: auto !important;
+    scrollbar-width: none !important;
+    -webkit-overflow-scrolling: touch !important;
+    /* The panel grid's align-items:center (set above to vertically center
+       the header row) also centers this grid item inside its 1fr row —
+       with the content now compact, that leaves a large empty band both
+       above and below the settings list. Pin the content to the top. */
+    align-self: start !important;
+    /* Cap at the available row height instead of growing to content:
+       short pages (通用设置) stay compact, but a long one — the plugin
+       inventory in particular, which can list many cards — is constrained
+       to the row and scrolls internally (overflow-y above) rather than
+       overflowing the panel unreadable and unscrollable (user report:
+       plugin list couldn't scroll). */
+    max-height: 100% !important;
+  }
+  .VOzbGW_options::-webkit-scrollbar {
+    display: none !important;
+  }
+  /* One row = one setting. Title column flexes, selector column is
+     fixed-width and right-aligned, everything vertically centered, with
+     a hairline divider between rows so the list reads as a list. */
+  .VOzbGW_options [class$='_row'] {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    min-height: 52px !important;
+    padding: 9px 0 !important;
+    border-bottom: 1px solid rgba(120, 100, 80, 0.12) !important;
+  }
+  .VOzbGW_options [class$='_rowText'] {
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+  }
+  .VOzbGW_options [class$='_title'] {
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    line-height: 1.4 !important;
+    color: rgb(60, 52, 44) !important;
+  }
+  /* Descriptions capped at two lines instead of vanishing entirely —
+     the "仅对此后新建的会话生效" / "Cmd/Ctrl+Enter" notes are still the
+     only place those behaviors are explained. Two lines keeps them
+     readable without the 3-line wrap that made rows look broken. */
+  .VOzbGW_options [class$='_desc'] {
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+    overflow: hidden !important;
+    width: 100% !important;
+    max-width: 196px !important;
+    font-size: 11px !important;
+    line-height: 1.45 !important;
+    color: rgb(130, 118, 104) !important;
+    margin-top: 2px !important;
+  }
+  /* Selector pills: right-aligned, terracotta-tinted border, rounded —
+     matching the theme's own button language instead of dsh's bare
+     text-button. */
+  .VOzbGW_options [class$='_selector'] {
+    flex: 0 0 auto !important;
+    min-width: 104px !important;
+    height: 34px !important;
+    padding: 0 10px !important;
+    border-radius: 10px !important;
+    border: 1px solid rgba(204, 120, 92, 0.4) !important;
+    background: #fffdf9 !important;
+    color: rgb(80, 66, 54) !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 6px !important;
+  }
+  /* 外观 theme previews: three stacked full-width 84px blocks become a
+     single row of compact swatches — the desktop's "pick a whole theme"
+     moment doesn't need 252px of vertical space on a phone. */
+  .VOzbGW_options [class$='_cubeRow'] {
+    flex-direction: row !important;
+    gap: 8px !important;
+    margin-top: 6px !important;
+  }
+  /* *= not $=: the selected swatch carries two classes
+     (_themeCube _selected), so an end-anchored match misses it and it
+     keeps its desktop 84px height while its siblings shrink — first
+     detected as a 199px-wide/84px-tall first block in the live DOM. */
+  .VOzbGW_options [class*='_themeCube'] {
+    flex: 1 1 0 !important;
+    width: auto !important;
+    height: 54px !important;
+    padding: 6px 8px !important;
+    border-radius: 12px !important;
+    font-size: 12px !important;
+    overflow: hidden !important;
+  }
+  /* Section groups (外观 etc.) get breathing room above, and their
+     group-level heading reuses the row-title weight. */
+  .VOzbGW_options [class$='_group'] {
+    margin-top: 22px !important;
+  }
+
+  /* ── Scroll feel: no rubber-band past the ends (2026-08-16) ──────────
+     iOS bounces at the top/bottom of every scrollable region by default
+     (overscroll-behavior: auto) — on a phone that reads as "滑到底了又
+     弹回去". Pin the message list and the sidebar list to their content
+     bounds so the bottom is just the bottom. */
+  .wSkVaW_scrollBody,
+  .qDHVXG_list {
+    overscroll-behavior: none !important;
+  }
+  /* Sidebar list still shows dsh's desktop 8px scrollbar — on a phone the
+     list should scroll the way native mobile lists do: no visible track,
+     pure touch inertia (which the browser already provides). */
+  .qDHVXG_list::-webkit-scrollbar {
+    display: none !important;
+  }
+  .qDHVXG_list {
+    scrollbar-width: none !important;
+  }
+
+  /* ── Selection: conversation text copyable, everything else not ─────
+     dsh's desktop UI lets you select arbitrary chrome (tab labels, row
+     text, settings) and iOS pops its long-press callout / selection
+     handles on top of it — that's the "长按出现莫名文字" report. Only
+     the conversation body (and the composer, which must accept input)
+     opt back into selection; everything else gets user-select: none,
+     which also kills the long-press callout. */
+  body {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+    -webkit-touch-callout: none !important;
+  }
+  .wSkVaW_scrollBody,
+  .uV2eYG_input {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+    -webkit-touch-callout: default !important;
+  }
+
+  /* ── Conversation body in a serif face (2026-08-16) ─────────────────
+     Requested: 宋体 for the message text. Songti SC (macOS) / SimSun
+     (Windows) with STSong as a fallback; code and UI labels keep their
+     own families where dsh sets them, this only re-faces plain text. */
+  .wSkVaW_scrollBody {
+    font-family: 'Songti SC', 'SimSun', 'STSong', serif !important;
+  }
+
+  /* ── Session-row hover detail card: gone on touch (2026-08-16) ──────
+     dsh shows a dark detail card (session title + last activity +
+     idle/running state) when a session row is hovered. A touch screen
+     has no hover to serve, but iOS synthesizes one on tap, so the card
+     flickers in and out — and its fixed position floats past the right
+     edge of a phone viewport, leaving a stray dark slab at the screen
+     edge (the "黑色板块" that appears and vanishes; confirmed live as
+     _card_1b2ny_13, rgb(44,44,46), fixed at x324 on a 390px viewport).
+     The session rows already show this information inline, so the card
+     is pure desktop chrome here. */
+  ._card_1b2ny_13 {
+    display: none !important;
+  }
+
+  /* ── Context-usage ring, relocated to the header (2026-08-16) ───────
+     mobile.js moves the JObwrW_trigger button into .wSkVaW_titleRow (it
+     used to crowd the composer's bottom row). Position it absolutely at
+     the header's right edge, vertically centered, and leave room for it
+     so the title doesn't run underneath. */
+  .wSkVaW_titleRow {
+    position: relative !important;
+    padding-right: 44px !important;
+  }
+  .JObwrW_trigger {
+    position: absolute !important;
+    right: 8px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    margin: 0 !important;
+  }
+
+  /* ── In-message meta lines stay visible (2026-08-16) ────────────────
+     Small grey meta rows inside messages (retry timing, duration, error
+     details, elapsed/time labels) can end up hidden under the following
+     block — or clipped at the screen edge (the "用时在手机边缘被切割"
+     report) — on narrow screens. Raise them a layer, and cap their width
+     to the container with word-breaking so a long value wraps instead of
+     being cut. */
+  .wSkVaW_scrollBody [class*='retry'],
+  .wSkVaW_scrollBody [class*='detail'],
+  .wSkVaW_scrollBody [class*='meta'],
+  .wSkVaW_scrollBody [class*='duration'],
+  .wSkVaW_scrollBody [class*='elapsed'],
+  .wSkVaW_scrollBody [class*='time'] {
+    position: relative !important;
+    z-index: 1 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-wrap: anywhere !important;
+  }
+
+  /* ── Composer control row stays single-line (2026-08-16) ─────────────
+     An earlier fix let .uV2eYG_row wrap when the tools segment and the
+     model trigger collided on narrow screens — but wrapping put the
+     composer on two lines, which read worse than the overlap. Instead the
+     + button (uV2eYG_add) is moved up to the header row by mobile.js,
+     leaving this row just permission + model + send, which fits without
+     wrapping. No flex-wrap here: the row must stay one line. */
+  .uV2eYG_row {
+    flex-wrap: nowrap !important;
+  }
+
+  /* No stray tap highlights anywhere on touch: pressing anywhere (a
+     session row, a message, the composer) used to flash the browser's
+     default tap highlight / shadow. Transparent kills it app-wide; the
+     pressed-row scale feedback in mobile.js (ds-mobile-row-pressed) is
+     the intended replacement cue. */
+  * {
+    -webkit-tap-highlight-color: transparent !important;
+  }
+
+  /* ── In-message meta lines stay visible (2026-08-16) ────────────────
+     Small grey meta rows inside messages (retry timing, duration, error
+     details) can end up hidden under the following block — or clipped at
+     the screen edge (the "用时在手机边缘被切割" report) — on narrow
+     screens. Raise them a layer, and cap their width to the container
+     with word-breaking so a long value wraps instead of being cut. */
+  .wSkVaW_scrollBody [class*='retry'],
+  .wSkVaW_scrollBody [class*='detail'],
+  .wSkVaW_scrollBody [class*='meta'],
+  .wSkVaW_scrollBody [class*='duration'] {
+    position: relative !important;
+    z-index: 1 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    overflow-wrap: anywhere !important;
+  }
+}
+
+/* ── Voice-to-text input overlay ─────────────────────────────────────
+   Sits on top of .uV2eYG_input (a real <textarea>) inside .uV2eYG_grow,
+   which is already position:relative — so a plain absolute inset pins
+   this layer exactly over the input, no extra positioning math needed.
+   Stays inside the composer's existing ~28px-tall footprint rather than
+   forcing it taller (that risks fighting dsh's own textarea auto-resize).
+   --ds-voice-accent is set at runtime by mobile.js from the send
+   button's own background color, so this tracks whatever theme is
+   active instead of a color hardcoded here. See
+   docs/superpowers/specs/2026-08-16-voice-to-text-composer-design.md */
+.ds-mobile-voice-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: 10px;
+  border: 1px solid rgba(127, 127, 127, 0.22);
+  background: rgba(255, 255, 255, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  overflow: hidden;
+}
+body[data-ds-dark-theme] .ds-mobile-voice-overlay {
+  background: rgba(0, 0, 0, 0.25);
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-hidden {
+  display: none;
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-recording {
+  border-color: var(--ds-voice-accent, #d85a30);
+}
+.ds-mobile-voice-wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 16px;
+  transition: opacity 0.15s;
+}
+.ds-mobile-voice-wave span {
+  display: block;
+  width: 2.5px;
+  border-radius: 2px;
+  background: rgba(127, 127, 127, 0.55);
+  transition: background 0.15s;
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-recording .ds-mobile-voice-wave span {
+  background: var(--ds-voice-accent, #d85a30);
+  animation: ds-voice-wave 0.9s ease-in-out infinite;
+}
+@keyframes ds-voice-wave {
+  0%, 100% { transform: scaleY(0.45); }
+  50% { transform: scaleY(1); }
+}
+.ds-mobile-voice-busy-dots {
+  display: none;
+  font-size: 13px;
+  color: rgba(127, 127, 127, 0.7);
+  letter-spacing: 2px;
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-busy .ds-mobile-voice-wave {
+  display: none;
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-busy .ds-mobile-voice-busy-dots {
+  display: block;
+  animation: ds-voice-busy-pulse 1s ease-in-out infinite;
+}
+@keyframes ds-voice-busy-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.9; }
+}
+.ds-mobile-voice-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 14px;
+  color: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-mobile-voice-text,
+.ds-mobile-voice-overlay.ds-mobile-voice-error .ds-mobile-voice-text {
+  opacity: 1;
+  transform: translateY(0);
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-error .ds-mobile-voice-text {
+  color: rgba(200, 60, 60, 0.85);
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-mobile-voice-wave,
+.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-mobile-voice-busy-dots,
+.ds-mobile-voice-overlay.ds-mobile-voice-error .ds-mobile-voice-wave,
+.ds-mobile-voice-overlay.ds-mobile-voice-error .ds-mobile-voice-busy-dots {
+  opacity: 0;
 }
