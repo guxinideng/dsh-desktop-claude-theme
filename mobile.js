@@ -1412,6 +1412,20 @@
     }, VOICE_ERROR_DISPLAY_MS);
   }
 
+  // Pin the fixed-position wait panel to the composer's current viewport
+  // rect (the composer sits at the bottom of the page, so the panel
+  // floats directly above it). Called once when the busy state starts —
+  // the user isn't scrolling mid-transcription, so a single pin is fine.
+  function positionVoicePanel(overlay) {
+    const panel = overlay.querySelector('.ds-voice-panel');
+    const grow = getComposerGrow();
+    if (!panel || !grow) return;
+    const rect = grow.getBoundingClientRect();
+    panel.style.left = rect.left + 'px';
+    panel.style.width = rect.width + 'px';
+    panel.style.top = rect.top - 112 + 'px'; // 104px panel + 8px gap
+  }
+
   function applyVoiceAccentColor(overlay) {
     const sendBtn = getSendButton();
     if (!sendBtn) return;
@@ -1807,6 +1821,7 @@
 
   async function uploadVoiceRecording(blob, overlay) {
     setVoiceState(overlay, 'ds-mobile-voice-busy');
+    positionVoicePanel(overlay);
     // Wait-panel copy starts neutral; if whisper is taking a while (long
     // clips transcribe slower — the 60s budget exists for that), switch
     // to a longer-wait line so the panel reads as alive, not stuck. Time-

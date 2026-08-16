@@ -1008,13 +1008,17 @@
   overflow: visible; /* let the panel extend above the strip */
 }
 .ds-voice-panel {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 28px; /* panel sits directly on the composer strip */
+  /* fixed, not absolute: the composer's own scroll container
+     (overflow:auto, ~28px tall) clips anything that extends above the
+     strip, so an absolute panel was invisible in real rendering despite
+     being laid out (the "只有一层阴影" report). JS pins it to the
+     composer's viewport rect when the busy state starts. */
+  position: fixed;
+  z-index: 1000;
+  box-sizing: border-box;
   height: 104px;
   padding: 24px 22px 0;
-  border-radius: 18px 18px 6px 6px;
+  border-radius: 18px;
   background: rgba(255, 255, 255, 0.8);
   -webkit-backdrop-filter: blur(22px);
   backdrop-filter: blur(22px);
@@ -1055,6 +1059,9 @@
   background-size: 220% 100%;
   -webkit-background-clip: text;
   background-clip: text;
+  /* Both, because some WebKit versions need -webkit-text-fill-color for
+     the clip to show (color: transparent alone can render nothing). */
+  -webkit-text-fill-color: transparent;
   color: transparent;
   animation: ds-voice-shimmer-sweep 1.8s linear infinite;
 }
@@ -1063,7 +1070,12 @@
   to { background-position: -100% 0; }
 }
 @supports not (-webkit-background-clip: text) {
-  .ds-voice-shimmer { color: rgba(40, 40, 50, 0.95); background: none; animation: none; }
+  .ds-voice-shimmer {
+    color: rgba(40, 40, 50, 0.95);
+    -webkit-text-fill-color: currentColor;
+    background: none;
+    animation: none;
+  }
 }
 .ds-voice-dots i {
   display: inline-block;
