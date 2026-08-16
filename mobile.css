@@ -18,6 +18,18 @@
     padding-top: 0 !important;
   }
 
+  /* viewport-fit=cover (injected by remote-gateway.js) extends the page
+     behind the notch / Dynamic Island; dsh's header carries no safe-area
+     padding of its own, so give it the top inset — otherwise the header
+     would sit under the island on notched iPhones. The composer gets the
+     bottom inset for the home-indicator bar the same way. */
+  .wSkVaW_header {
+    padding-top: calc(12px + env(safe-area-inset-top)) !important;
+  }
+  .wSkVaW_composerSeat {
+    padding-bottom: env(safe-area-inset-bottom) !important;
+  }
+
   /* dsh's own app shell already fills the viewport and manages its own
      internal scroll regions (message list, sidebar) — body itself was
      never meant to scroll. Any stray overflow there is what iOS Safari's
@@ -875,7 +887,17 @@
 }
 /* dsh's own placeholder would otherwise sit behind the wave — hide it
    while the voice control owns this space, and let it come back the
-   moment the overlay steps aside for typing. */
+   moment the overlay steps aside for typing. Same for the input's real
+   text: transcription writes the result into the textarea AND shows it
+   on the overlay's text layer (done state) — with both visible the two
+   copies of the text render on top of each other, misaligned, until the
+   overlay hides (the "文字叠加" report). While the overlay is up, the
+   textarea's text is transparent; the moment it hides, the color comes
+   back and the user edits the same text in the input. */
+.uV2eYG_grow:has(.ds-mobile-voice-overlay:not(.ds-mobile-voice-hidden)) .uV2eYG_input,
+.uV2eYG_grow:has(.ds-mobile-voice-overlay:not(.ds-mobile-voice-hidden)) .uV2eYG_backdrop {
+  color: transparent !important;
+}
 .uV2eYG_grow:has(.ds-mobile-voice-overlay:not(.ds-mobile-voice-hidden)) .uV2eYG_input::placeholder {
   color: transparent !important;
 }
@@ -887,13 +909,18 @@
 }
 .ds-mobile-voice-wave span {
   display: block;
-  width: 0;
-  margin: 0;
+  /* Fixed geometry: width and spacing never animate. The earlier version
+     transitioned width/margin to collapse/expand the row, which forced a
+     layout pass on every frame of every transition — the stutter source
+     on phones. Shape is now expressed purely through height (transitioned
+     once per state change) and visibility through opacity (composited);
+     the pulse/breathe animations below run on transform: scaleY, which
+     never touches layout either. */
+  width: 3px;
+  margin: 0 1.5px;
   border-radius: 2px;
   background: rgba(127, 127, 127, 0.42);
   transition:
-    width 0.3s cubic-bezier(0.2, 0.8, 0.3, 1),
-    margin 0.3s cubic-bezier(0.2, 0.8, 0.3, 1),
     height 0.3s cubic-bezier(0.2, 0.8, 0.3, 1),
     background 0.2s,
     opacity 0.2s;
@@ -953,4 +980,20 @@
 .ds-mobile-voice-overlay.ds-mobile-voice-done .ds-mobile-voice-wave,
 .ds-mobile-voice-overlay.ds-mobile-voice-error .ds-mobile-voice-wave {
   opacity: 0;
+}
+
+/* ── Default font: 宋体 ───────────────────────────────────────────────
+   Desktop (font-picker.js, injected by main.js only) lets the user pick
+   from 5 fonts by writing this same --dsw-font-family custom property
+   dsh's own stylesheets already key their font-family off of. Mobile
+   skips that whole picker UI/menu — just pin the variable directly to
+   the 宋体 stack, same font stack font-picker.js itself uses for its
+   own "宋体" option. Songti SC is the system font on both iOS and
+   macOS; ui-serif/Georgia/serif are the fallback chain if some future
+   visitor's platform doesn't have it. */
+@media (max-width: 640px) {
+  body,
+  body[data-ds-dark-theme] {
+    --dsw-font-family: 'Songti SC', ui-serif, Georgia, serif !important;
+  }
 }
