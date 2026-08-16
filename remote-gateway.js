@@ -283,6 +283,28 @@ function authMethod(req) {
   return null;
 }
 
+// Standalone/home-screen mode has no address bar and no back button — a
+// bare text/plain error line used to be a dead end, only escapable by
+// force-quitting and reopening the app. Styled page with an obvious retry
+// button instead, in every gateway-level failure response below.
+function renderErrorPage(heading, detail) {
+  return `<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>${heading}</title></head>
+<body style="margin:0;min-height:100dvh;display:flex;align-items:center;justify-content:center;
+background:#FAF9F5;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;
+padding:24px;padding-top:calc(24px + env(safe-area-inset-top));
+padding-bottom:calc(24px + env(safe-area-inset-bottom));box-sizing:border-box;">
+<div style="max-width:300px;text-align:center;">
+<div style="font-size:16px;color:#28241f;line-height:1.6;margin-bottom:10px;">${heading}</div>
+<div style="font-size:13px;color:#8a8574;line-height:1.6;margin-bottom:24px;">${detail}</div>
+<button onclick="location.reload()" style="background:#28241f;color:#fff;border:none;
+border-radius:999px;padding:12px 36px;font-size:15px;-webkit-appearance:none;cursor:pointer;">重试</button>
+</div>
+</body></html>`;
+}
+
 // changeOrigin is deliberately left off: dsh's own /api browser-trust fence
 // requires the Host header it sees to match the browser's Origin (see
 // @deepseek-ai/dsh-client-connection's isTrustedApiRequest) — rewriting Host
@@ -294,8 +316,8 @@ const proxy = httpProxy.createProxyServer({ target: DSH_URL });
 proxy.on('error', (err, req, res) => {
   console.error('[gateway] proxy error:', err.message);
   if (res && !res.headersSent && typeof res.writeHead === 'function') {
-    res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('dsh 暂时不可用，请稍后重试');
+    res.writeHead(502, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(renderErrorPage('连接中断', 'dsh 暂时不可用，可能刚好在重启，通常重试就能恢复。'));
   } else if (res && typeof res.destroy === 'function') {
     res.destroy();
   }
@@ -414,8 +436,8 @@ function serveThemedIndex(req, res) {
   });
   upstream.on('error', (err) => {
     console.error('[gateway] index fetch error:', err.message);
-    if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('dsh 暂时不可用，请稍后重试');
+    if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(renderErrorPage('连接中断', 'dsh 暂时不可用，可能刚好在重启，通常重试就能恢复。'));
   });
 }
 
@@ -459,8 +481,8 @@ const requestHandler = async (req, res) => {
     await ensureDshReady();
   } catch {
     openConnections.delete(res);
-    res.writeHead(504, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('dsh 启动超时，请重试');
+    res.writeHead(504, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(renderErrorPage('启动超时', 'dsh 尝试启动但超过 30 秒没有响应，可能是首次启动较慢，或者遇到了问题。'));
     return;
   }
 
