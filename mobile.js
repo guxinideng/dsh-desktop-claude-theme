@@ -184,6 +184,7 @@
     relocateContextRing();
     syncThemeColor();
     pinMobileToLight();
+    trimTurnStatusStats();
   }
 
   // The status-bar / Dynamic-Island strip in iOS (especially in the
@@ -218,6 +219,32 @@
     if (document.body && document.body.hasAttribute('data-ds-dark-theme')) {
       document.body.removeAttribute('data-ds-dark-theme');
     }
+  }
+
+  // Message turn-status rows show "21:33 · 用时 2分15秒 · 首 token 28秒 ·
+  // 106 tok/s" — the absolute time is useful on a phone, the latency/rate
+  // stats are not (and they overflow the right edge — user report). Keep
+  // only the time by emptying the text nodes that carry 用时/首 token/
+  // tok/s; the time lives in its own element (timeStart), so it survives.
+  // The row may not be rendered in every state, so this just re-runs on
+  // the poll and trims whatever exists.
+  function trimTurnStatusStats() {
+    if (!isMobile()) return;
+    document.querySelectorAll('[class$="_turnStatus"]').forEach((row) => {
+      const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+      const dead = [];
+      let node;
+      while ((node = walker.nextNode())) {
+        if (node.textContent && /用时|首 token|tok\/s/.test(node.textContent)) dead.push(node);
+      }
+      dead.forEach((node) => {
+        node.textContent = '';
+        const parent = node.parentElement;
+        if (parent && !parent.textContent.trim() && !parent.querySelector('[class$="_timeStart"], [class$="_timeEnd"]')) {
+          parent.style.display = 'none';
+        }
+      });
+    });
   }
 
   // The 对话/轨迹 tab strip is hidden on mobile (mobile.css), but dsh can
@@ -350,6 +377,7 @@
     syncTrajectoryTabStrip();
     relocateContextRing();
     pinMobileToLight();
+    trimTurnStatusStats();
     syncThemeColor();
   }, 2000);
 
