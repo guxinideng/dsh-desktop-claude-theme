@@ -744,20 +744,36 @@
   }
 
   /* ── Context-usage ring, relocated to the header (2026-08-16) ───────
-     mobile.js moves the JObwrW_trigger button into .wSkVaW_titleRow (it
-     used to crowd the composer's bottom row). Position it absolutely at
-     the header's right edge, vertically centered, and leave room for it
-     so the title doesn't run underneath. */
+     mobile.js moves the whole JObwrW_root (trigger + popup panel) into
+     .wSkVaW_titleRow. Position the root at the header's right edge,
+     vertically centered; the popup panel (JObwrW_panel) defaults to
+     opening ABOVE the ring (bottom: calc(100% + 8px)) — fine at the
+     composer, but at the top of the screen that launches it off the top
+     edge, so flip it to open downward here and cap its width. */
   .wSkVaW_titleRow {
     position: relative !important;
     padding-right: 44px !important;
   }
-  .JObwrW_trigger {
+  .JObwrW_root {
     position: absolute !important;
     right: 8px !important;
     top: 50% !important;
     transform: translateY(-50%) !important;
     margin: 0 !important;
+  }
+  .JObwrW_root .JObwrW_panel {
+    bottom: auto !important;
+    top: calc(100% + 8px) !important;
+    right: 0 !important;
+    max-width: min(264px, calc(100vw - 24px)) !important;
+  }
+
+  /* Popup menus (model picker etc.) must never run past the screen edge
+     on narrow phones — cap width and let them shift left when the anchor
+     is close to the right edge. */
+  ._7KE1Ra_menu,
+  .cubgiG_menu {
+    max-width: calc(100vw - 24px) !important;
   }
 
   /* ── In-message meta lines stay visible (2026-08-16) ────────────────
@@ -828,29 +844,54 @@
    button's own background color, so this tracks whatever theme is
    active instead of a color hardcoded here. See
    docs/superpowers/specs/2026-08-16-voice-to-text-composer-design.md */
+/* pointer-events:none on the overlay itself — it must NOT swallow taps
+   across the whole textarea, or the user could never reach the real
+   input to type manually (a real bug found in review: the overlay used
+   to be a full opaque hit-target, blocking typing whenever it was
+   visible — i.e. most of the time). Only .ds-mobile-voice-hit, a small
+   centered pill around the wave graphic, re-enables pointer-events —
+   that's the actual "press here to talk" target. Anywhere else in the
+   overlay's footprint passes taps straight through to .uV2eYG_input
+   underneath. */
 .ds-mobile-voice-overlay {
   position: absolute;
   inset: 0;
   z-index: 5;
-  border-radius: 10px;
-  border: 1px solid rgba(127, 127, 127, 0.22);
-  background: rgba(255, 255, 255, 0.6);
+  pointer-events: none;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  -webkit-user-select: none;
-  user-select: none;
   overflow: hidden;
-}
-body[data-ds-dark-theme] .ds-mobile-voice-overlay {
-  background: rgba(0, 0, 0, 0.25);
 }
 .ds-mobile-voice-overlay.ds-mobile-voice-hidden {
   display: none;
 }
-.ds-mobile-voice-overlay.ds-mobile-voice-recording {
+.ds-mobile-voice-hit {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: 1px solid rgba(127, 127, 127, 0.22);
+  background: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+body[data-ds-dark-theme] .ds-mobile-voice-hit {
+  background: rgba(0, 0, 0, 0.25);
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-recording .ds-mobile-voice-hit {
   border-color: var(--ds-voice-accent, #d85a30);
+}
+/* Busy/done/error: recording is over, nothing here should keep
+   intercepting taps — let the user reach the real textarea immediately
+   instead of waiting out the auto-revert timers. */
+.ds-mobile-voice-overlay.ds-mobile-voice-busy .ds-mobile-voice-hit,
+.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-mobile-voice-hit,
+.ds-mobile-voice-overlay.ds-mobile-voice-error .ds-mobile-voice-hit {
+  pointer-events: none;
 }
 .ds-mobile-voice-wave {
   display: flex;
@@ -894,6 +935,10 @@ body[data-ds-dark-theme] .ds-mobile-voice-overlay {
 .ds-mobile-voice-text {
   position: absolute;
   inset: 0;
+  /* Explicit, not relying on inherited none from the overlay above —
+     this layer must never block taps to the real textarea underneath,
+     in every state (mid-transition or not). */
+  pointer-events: none;
   display: flex;
   align-items: center;
   padding: 0 12px;

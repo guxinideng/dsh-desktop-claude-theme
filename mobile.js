@@ -1130,8 +1130,16 @@
 
     overlay = document.createElement('div');
     overlay.className = VOICE_OVERLAY_CLASS;
-    overlay.setAttribute('role', 'button');
-    overlay.setAttribute('aria-label', '按住说话');
+
+    // The overlay itself is pointer-events:none (see mobile.css) so it
+    // never blocks taps to the real textarea underneath — only this
+    // small centered "hit" pill around the wave graphic is actually
+    // tappable. role/aria-label live here, on the real interactive
+    // target, not on the pass-through overlay wrapper.
+    const hit = document.createElement('div');
+    hit.className = 'ds-mobile-voice-hit';
+    hit.setAttribute('role', 'button');
+    hit.setAttribute('aria-label', '按住说话');
 
     const wave = document.createElement('div');
     wave.className = 'ds-mobile-voice-wave';
@@ -1140,12 +1148,14 @@
       bar.style.height = h + 'px';
       wave.appendChild(bar);
     }
-    overlay.appendChild(wave);
+    hit.appendChild(wave);
 
     const busyDots = document.createElement('div');
     busyDots.className = 'ds-mobile-voice-busy-dots';
     busyDots.textContent = '···';
-    overlay.appendChild(busyDots);
+    hit.appendChild(busyDots);
+
+    overlay.appendChild(hit);
 
     const textLayer = document.createElement('div');
     textLayer.className = 'ds-mobile-voice-text';
@@ -1260,7 +1270,14 @@
     const overlay = ensureVoiceOverlay();
     if (!overlay || overlay.dataset.dsBound) return;
     overlay.dataset.dsBound = '1';
-    overlay.addEventListener(
+    // Listeners live on .ds-mobile-voice-hit, not the overlay wrapper —
+    // the wrapper is pointer-events:none (see mobile.css) so taps
+    // outside this small pill pass straight through to the real
+    // textarea, letting the user type manually whenever they're not
+    // actually pressing the wave graphic itself.
+    const hit = overlay.querySelector('.ds-mobile-voice-hit');
+    if (!hit) return;
+    hit.addEventListener(
       'touchstart',
       (event) => {
         event.preventDefault();
@@ -1268,7 +1285,7 @@
       },
       { passive: false }
     );
-    overlay.addEventListener(
+    hit.addEventListener(
       'touchend',
       (event) => {
         event.preventDefault();
