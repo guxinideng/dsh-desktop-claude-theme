@@ -1,0 +1,7 @@
+# ~/.ssh/config 里的 dsh-vps 主机块 (tunnel plist 依赖它)
+Host dsh-vps
+    HostName 38.150.33.206
+    Port 53471
+    User root
+    IdentityFile ~/.ssh/dsh_remote_gateway_vps
+    IdentitiesOnly yes

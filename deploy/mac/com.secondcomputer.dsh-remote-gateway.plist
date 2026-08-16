@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.secondcomputer.dsh-remote-gateway</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/node</string>
+        <string>/Users/secondcomputer/Documents/Claude/Projects/dsh-desktop-claude-theme/remote-gateway.js</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/secondcomputer/Documents/Claude/Projects/dsh-desktop-claude-theme</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>GATEWAY_TOKEN</key>
+        <string>CHANGE_ME</string>
+        <key>IDLE_MINUTES</key>
+        <string>10080</string>
+        <key>DSH_PORT</key>
+        <string>3080</string>
+        <key>DSH_BIN</key>
+        <string>/opt/homebrew/bin/dsh</string>
+        <key>DSH_TRUSTED_HOSTS</key>
+        <string>127.0.0.1:3090,deepseek.jiecaisongai.shop,deepseek.jiecaisongai.shop:443</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOME</key>
+        <string>/Users/secondcomputer</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/secondcomputer/Library/Logs/dsh-remote-gateway.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/secondcomputer/Library/Logs/dsh-remote-gateway.err.log</string>
+</dict>
+</plist>
