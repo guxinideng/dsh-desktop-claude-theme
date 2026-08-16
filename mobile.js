@@ -762,6 +762,25 @@
     true
   );
 
+  // Session rows are draggable="true" (dsh lets you reorder them by
+  // dragging on desktop). On a phone that collides head-on with the
+  // long-press below: the same gesture that opens the row's menu also
+  // starts a native drag, and iOS floats a snapshot of the row under the
+  // finger — the solid black bar with doubled-up text and a grip icon
+  // sitting over the sidebar while the menu is open. Cancelling dragstart
+  // is what actually stops it; mobile.css's -webkit-user-drag:none is the
+  // declarative half, but isn't honored consistently on its own. Reorder
+  // by dragging has no mobile affordance to lose.
+  document.addEventListener(
+    'dragstart',
+    (event) => {
+      if (!isMobile()) return;
+      if (!event.target.closest || !event.target.closest('.YDXeBa_sessionRow')) return;
+      event.preventDefault();
+    },
+    true
+  );
+
   // Long-press a session row to open its rename/delete menu — the actual
   // button for this (.YDXeBa_rowActions) is still in the DOM, just hidden
   // via visibility (see mobile.css) so it can't eat a row's first tap the

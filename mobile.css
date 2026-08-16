@@ -364,6 +364,21 @@
     background-color: transparent !important;
   }
 
+  /* Session rows carry draggable="true" and -webkit-user-drag:element so
+     they can be reordered by dragging on desktop. On a phone that turns
+     the long press — the gesture this file binds the row's own menu to —
+     into the start of a native drag as well: iOS lifts a snapshot of the
+     row and floats it under the finger, which is the solid black bar with
+     doubled-up text and a grip icon that appeared over the sidebar while
+     the 重命名/分叉/归档 menu was open. There is no reordering affordance
+     on mobile to lose here, so the row opts out of dragging entirely;
+     mobile.js also cancels dragstart, since this property alone isn't
+     honored consistently. */
+  .YDXeBa_sessionRow,
+  .YDXeBa_sessionRow * {
+    -webkit-user-drag: none !important;
+  }
+
   /* 对话/轨迹 tab switcher only earns its keep with more than one real
      destination — on mobile there's just the conversation, so the tab
      strip itself is dead chrome. Hiding it doesn't touch which panel is
