@@ -348,9 +348,19 @@
      phone as a stray shadow/highlight wherever the finger landed, and it
      served nothing — the tap navigates anyway. The selected row keeps
      its own background (the :not(.selected) guard below); only the
-     transient :active/:hover states are suppressed. */
+     transient :active/:hover states are suppressed.
+
+     .YDXeBa_menuOpen is the third such state, and the one that actually
+     shows: dsh sets it on the row while its long-press menu is open and
+     keeps it there for as long as the menu stays up, tinting the row
+     rgba(0,0,0,0.05). Unlike :active/:hover — which a touch device
+     barely renders — this one sits under the finger for the whole time
+     the 重命名/分叉/归档 menu is being read ("我按那个地方,它会发黑").
+     The menu itself already says which row it belongs to, so the tint
+     adds nothing here. */
   .YDXeBa_sessionRow:not(.YDXeBa_selected):active,
-  .YDXeBa_sessionRow:not(.YDXeBa_selected):hover {
+  .YDXeBa_sessionRow:not(.YDXeBa_selected):hover,
+  .YDXeBa_sessionRow:not(.YDXeBa_selected).YDXeBa_menuOpen {
     background-color: transparent !important;
   }
 

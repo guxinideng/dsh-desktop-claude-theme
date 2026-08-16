@@ -495,8 +495,34 @@ function serveThemedIndex(req, res) {
             '<meta name="apple-mobile-web-app-status-bar-style" content="default">\n' +
             '<meta name="apple-mobile-web-app-title" content="DeepSeek">\n' +
             `<link rel="apple-touch-icon" href="/__ds_theme/apple-touch-icon.png?v=${themeStamp}">\n` +
+            // color-scheme tells the browser this page renders light, so the
+            // canvas it paints before any of our CSS applies is light too
+            // rather than following the phone's dark system setting.
+            '<meta name="color-scheme" content="light">\n' +
             `<link rel="stylesheet" href="/__ds_theme/theme.css?v=${themeStamp}">\n` +
             `<link rel="stylesheet" href="/__ds_theme/mobile.css?v=${themeStamp}">\n` +
+            // Strip dsh's dark flag the instant it appears, inline and in
+            // <head> — mobile.js does this too, but it loads at </body>,
+            // long after dsh's own bundle has already set the attribute and
+            // painted a frame with it. mobile.css covers five
+            // --dsw-alias-bg-* variables for that window, but dsh flips 39
+            // of them: the composer card reads its fill from
+            // --dsw-alias-button-elevated-fill (dark value rgb(38,36,34)),
+            // which is the black slab that flashed over the new-session
+            // screen on a dark-mode phone before turning light. Chasing the
+            // remaining 34 variables would just re-break whenever dsh adds
+            // one, so this removes the trigger instead of repainting its
+            // effects. Two observers: the first waits for <body> to exist
+            // (it does not yet, at this point in the parse), then hands off
+            // to one watching only that single attribute — cheap enough to
+            // leave running for the life of the page.
+            '<script>(function(){function s(){var b=document.body;' +
+            "if(b&&b.hasAttribute('data-ds-dark-theme'))b.removeAttribute('data-ds-dark-theme');}" +
+            'function w(){s();new MutationObserver(s).observe(document.body,' +
+            "{attributes:true,attributeFilter:['data-ds-dark-theme']});}" +
+            'if(document.body){w();}else{var m=new MutationObserver(function(){' +
+            'if(document.body){m.disconnect();w();}});' +
+            'm.observe(document.documentElement,{childList:true,subtree:true});}})();</script>\n' +
             '</head>'
         )
         .replace('</body>', `<script src="/__ds_theme/mobile.js?v=${themeStamp}"></script>\n</body>`)
