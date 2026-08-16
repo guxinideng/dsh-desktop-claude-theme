@@ -433,11 +433,6 @@ const requestHandler = async (req, res) => {
     return;
   }
 
-  if (pathname === '/__ds_theme/diag' && req.method === 'POST') {
-    handleDiag(req, res);
-    return;
-  }
-
   if (pathname === '/__ds_theme/stt' && req.method === 'POST') {
     touch();
     await handleStt(req, res);

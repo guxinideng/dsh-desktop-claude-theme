@@ -813,10 +813,15 @@
     max-width: calc(100vw - 24px) !important;
   }
 
-  /* Message turn-status rows: the whole row is NOT hidden (that took the
-     absolute time with it); mobile.js trims the 用时/首 token/tok/s text
-     out and keeps just the time. This block intentionally left empty of
-     display rules — see trimTurnStatusStats in mobile.js. */
+  /* Message footer stats (MessageIconActions row): hide the clock time
+     and the "·" separators by class; the 用时/首 token/tok/s bare text
+     nodes are emptied by mobile.js (CSS can't target bare text). The
+     copy/branch action buttons and any deepdiving marker stay. */
+  [class$='_timeStart'],
+  [class$='_timeEnd'],
+  [class$='_runTimeDot'] {
+    display: none !important;
+  }
 
   /* dsh's 内测声明 welcome notice (the onboarding overlay) must not
      appear on a phone at all — auto-dismissing it in JS was good but

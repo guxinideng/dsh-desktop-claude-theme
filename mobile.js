@@ -300,33 +300,22 @@
     if (!isMobile()) return;
     const scroll = document.querySelector('.wSkVaW_scrollBody');
     if (!scroll) return;
-    // TEMP diagnosis: ship the REAL message-footer structure — the row
-    // with 复制/好回答/有问题的回答/在线对话分值 + time/用时/token.
-    if (!sessionStorage.getItem('dsDiag2Sent')) {
-      const hits = [];
-      document.querySelectorAll('*').forEach((el) => {
-        const t = (el.textContent || '').trim();
-        if (!t) return;
-        if (/好回答|有问题的回答|在线对话|复制/.test(t) && t.length < 120) {
-          const chain = [];
-          let cur = el;
-          for (let i = 0; i < 6 && cur; i++) {
-            chain.push((typeof cur.className === 'string' ? cur.className : cur.tagName).slice(0, 50));
-            cur = cur.parentElement;
-          }
-          hits.push({ t: t.slice(0, 80), chain: chain.join(' < '), html: el.outerHTML.slice(0, 400) });
-        }
-      });
-      sessionStorage.setItem('dsDiag2Sent', '1');
-      fetch('/__ds_theme/diag', { method: 'POST', body: JSON.stringify(hits.slice(0, 20)) }).catch(() => {});
+    // The 用时/首 token/tok/s stats are BARE TEXT NODES inside the
+    // actions row (MessageIconActions renders them as raw children of a
+    // Fragment) — querySelectorAll over elements never sees them, which
+    // is why every earlier trim "didn't work" on the phone. Walk TEXT
+    // nodes instead: any node mentioning 用时/首 token/tok/s is a stat —
+    // replaced with 'deepdiving' if it also carries that marker, emptied
+    // otherwise. The clock time and "·" separators are hidden by
+    // mobile.css ([class$='_timeStart'] etc). Never removes elements.
+    const walker = document.createTreeWalker(scroll, NodeFilter.SHOW_TEXT);
+    const dead = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      const t = node.textContent || '';
+      if (!/用时|首 ?token|tok\/s|tokensPerSecond|ttft/.test(t)) continue;
+      node.textContent = /deep\s*diving|深度思考/i.test(t) ? 'deepdiving' : '';
     }
-    scroll.querySelectorAll('*').forEach((el) => {
-      if (el.children.length > 0) return;
-      const t = el.textContent || '';
-      if (!t.trim()) return;
-      if (!/用时|首 ?token|tok\/s|tokensPerSecond|ttft/.test(t)) return;
-      el.textContent = /deep\s*diving|深度思考/i.test(t) ? 'deepdiving' : '';
-    });
   }
 
   // The 对话/轨迹 tab strip is hidden on mobile (mobile.css), but dsh can
@@ -481,6 +470,19 @@
         hideSettingsAgentPresetRow();
         syncSettingsPanelHeight();
       }, 50);
+    },
+    true
+  );
+
+  // Same portal-mount-delay problem as the settings dialog above, but for
+  // the workspace picker's own trigger — without this, "添加工作区…"
+  // would flash visible for up to 2s after every tap before the poll
+  // caught up to hiding it.
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (!isMobile() || !event.target.closest('.pXSMma_workspace')) return;
+      setTimeout(hideAddWorkspaceMenuItem, 50);
     },
     true
   );
