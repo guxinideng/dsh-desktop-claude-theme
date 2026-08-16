@@ -193,6 +193,7 @@
     relocateContextRing();
     syncThemeColor();
     pinMobileToLight();
+    autoDismissWelcomeNotice();
     trimTurnStatusStats();
   }
 
@@ -228,6 +229,21 @@
     if (document.body && document.body.hasAttribute('data-ds-dark-theme')) {
       document.body.removeAttribute('data-ds-dark-theme');
     }
+  }
+
+  // Auto-dismiss dsh's "内测声明" welcome notice (2026-08-16). It shows
+  // whenever the acknowledged version in settings doesn't exactly match
+  // the shipped WELCOME_NOTICE_VERSION, which after a config write-back
+  // or fresh start keeps popping back up — and on a phone it's pure
+  // friction ("每次点这个也挺烦"). Clicking its 继续/Continue button is
+  // the same acknowledgement the user would tap, so dsh records it; the
+  // overlay-hide fallback covers any state where the button isn't found.
+  function autoDismissWelcomeNotice() {
+    if (!isMobile()) return;
+    const btn = [...document.querySelectorAll('button')].find((b) => /继续|Continue/.test(b.textContent || ''));
+    if (btn) btn.click();
+    const overlay = document.querySelector('[class*="onboardingOverlay"], [class*="onboarding"]');
+    if (overlay) overlay.style.display = 'none';
   }
 
   // Message turn-status rows show "21:33 · 用时 2分15秒 · 首 token 28秒 ·
@@ -386,6 +402,7 @@
     syncTrajectoryTabStrip();
     relocateContextRing();
     pinMobileToLight();
+    autoDismissWelcomeNotice();
     trimTurnStatusStats();
     syncThemeColor();
   }, 2000);
