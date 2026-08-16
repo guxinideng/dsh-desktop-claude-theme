@@ -994,9 +994,153 @@
   opacity: 0;
   transition: opacity 0.2s;
 }
-.ds-mobile-voice-overlay.ds-mobile-voice-busy .ds-mobile-voice-busy-dots {
-  opacity: 1;
-  animation: ds-voice-busy-pulse 1s ease-in-out infinite;
+/* ── Transcription wait panel ──────────────────────────────────────
+   The 3-dot "···" pulse is gone: the user pointed at the bookkeeping
+   app's processing sheet ("等待面板文字动效") and it's a better wait —
+   shimmering current-step text (1.8s gradient sweep), three jumping
+   ellipsis dots (1.2s stagger), and an indeterminate progress bar
+   (sliding thumb) so something is always in motion. The overlay itself
+   stays a 28px strip over the composer; the panel floats ABOVE it
+   (grow is overflow:visible). Only transform/opacity animate — same
+   glass-panel rule as the bookkeeping app. */
+.ds-mobile-voice-overlay.ds-mobile-voice-busy,
+.ds-mobile-voice-overlay.ds-mobile-voice-done {
+  overflow: visible; /* let the panel extend above the strip */
+}
+.ds-voice-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 28px; /* panel sits directly on the composer strip */
+  height: 104px;
+  padding: 24px 22px 0;
+  border-radius: 18px 18px 6px 6px;
+  background: rgba(255, 255, 255, 0.8);
+  -webkit-backdrop-filter: blur(22px);
+  backdrop-filter: blur(22px);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 0 -10px 34px rgba(60, 60, 80, 0.12);
+  display: none;
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-busy .ds-voice-panel,
+.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-voice-panel {
+  display: block;
+  animation: ds-voice-panel-in 0.26s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-error .ds-voice-panel {
+  display: none;
+}
+@keyframes ds-voice-panel-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.ds-voice-status-row,
+.ds-voice-done-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+}
+.ds-voice-shimmer {
+  font-size: 16px;
+  font-weight: 500;
+  background: linear-gradient(
+    100deg,
+    rgba(120, 120, 135, 0.9) 20%,
+    rgba(40, 40, 50, 0.95) 38%,
+    var(--ds-voice-accent, #d85a30) 50%,
+    rgba(40, 40, 50, 0.95) 62%,
+    rgba(120, 120, 135, 0.9) 80%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: ds-voice-shimmer-sweep 1.8s linear infinite;
+}
+@keyframes ds-voice-shimmer-sweep {
+  from { background-position: 120% 0; }
+  to { background-position: -100% 0; }
+}
+@supports not (-webkit-background-clip: text) {
+  .ds-voice-shimmer { color: rgba(40, 40, 50, 0.95); background: none; animation: none; }
+}
+.ds-voice-dots i {
+  display: inline-block;
+  font-style: normal;
+  font-size: 16px;
+  font-weight: 500;
+  color: rgba(90, 90, 105, 0.8);
+  animation: ds-voice-dot-jump 1.2s infinite;
+}
+.ds-voice-dots i:nth-child(2) { animation-delay: 0.18s; }
+.ds-voice-dots i:nth-child(3) { animation-delay: 0.36s; }
+@keyframes ds-voice-dot-jump {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-3px); opacity: 1; }
+}
+.ds-voice-track {
+  margin-top: 16px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(120, 120, 135, 0.18);
+  overflow: hidden;
+}
+.ds-voice-thumb {
+  width: 34%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--ds-voice-accent, #d85a30);
+  animation: ds-voice-thumb-slide 1.3s cubic-bezier(0.45, 0.1, 0.55, 0.9) infinite;
+}
+@keyframes ds-voice-thumb-slide {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(400%); }
+}
+/* Transcription landed: status row hands over to a green "已转写 ✓"
+   confirmation (check pops, row settles in — same numbers as the
+   bookkeeping app), the progress bar steps aside. The overlay then
+   hides and the type-in animation takes over in the composer. */
+.ds-voice-done-row {
+  display: none;
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-voice-status-row {
+  display: none;
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-voice-done-row {
+  display: flex;
+  animation: ds-voice-done-settle 0.34s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-voice-track {
+  display: none;
+}
+.ds-voice-done-check {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #34c759;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: ds-voice-done-pop 0.3s ease;
+}
+.ds-voice-done-label {
+  font-size: 15px;
+  font-weight: 500;
+  color: rgba(40, 40, 50, 0.95);
+}
+@keyframes ds-voice-done-pop {
+  50% { transform: scale(1.3); }
+}
+@keyframes ds-voice-done-settle {
+  from { transform: translateY(10px) scale(1.12); transform-origin: left; opacity: 0.6; }
+}
+.ds-mobile-voice-overlay.ds-mobile-voice-busy .ds-mobile-voice-busy-dots,
+.ds-mobile-voice-overlay.ds-mobile-voice-done .ds-mobile-voice-busy-dots {
+  /* The old "···" pulse is retired in favor of the wait panel above. */
+  opacity: 0;
 }
 @keyframes ds-voice-busy-pulse {
   0%, 100% { opacity: 0.35; }
