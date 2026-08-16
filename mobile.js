@@ -2066,4 +2066,52 @@
     setVoiceWaitVisible,
     setVoiceWaitLabel,
   };
+
+  // ---------------------------------------------------------------------
+  // Keyboard-bug diagnostic probe (temporary — see
+  // docs/KEYBOARD-HANDOFF-2026-08-17.md for the investigation this
+  // supports). Pure observer: records every pointerdown/mousedown/
+  // touchstart/touchend/mouseup/click/focus/blur that touches the send
+  // button or the composer input, with readOnly state and time since
+  // last send/nav — no preventDefault/stopPropagation/property writes,
+  // so it can't change the bug's behavior, only watch it. Existing
+  // pointerdown handling never listens for that event type anywhere
+  // else in this file — this is the only place it's observed at all,
+  // which is exactly the gap handoff-report hypothesis 1 is about.
+  //
+  // On the real device, from Safari Web Inspector's console:
+  //   window.__dsKeyboardDebug.clear()        // before reproducing
+  //   (tap 发送 or 停止 once)
+  //   copy(window.__dsKeyboardDebug.log)       // copies JSON to clipboard
+  window.__dsKeyboardDebug = { log: [] };
+  window.__dsKeyboardDebug.clear = function () {
+    window.__dsKeyboardDebug.log.length = 0;
+  };
+  (function installKeyboardDebugProbe() {
+    const t0 = performance.now();
+    function record(type, event) {
+      const el = document.querySelector('.uV2eYG_input');
+      window.__dsKeyboardDebug.log.push({
+        t: +(performance.now() - t0).toFixed(1),
+        type,
+        isTrusted: event ? event.isTrusted : null,
+        target: event && event.target ? event.target.className || event.target.tagName : null,
+        readOnly: el ? el.readOnly : null,
+        activeIsInput: el ? document.activeElement === el : null,
+        msSinceSend: typeof lastSendAt === 'number' ? Date.now() - lastSendAt : null,
+        msSinceNav: typeof lastSessionNavAt === 'number' ? Date.now() - lastSessionNavAt : null,
+      });
+    }
+    ['pointerdown', 'mousedown', 'touchstart', 'touchend', 'mouseup', 'click', 'focus', 'blur'].forEach((type) => {
+      document.addEventListener(
+        type,
+        (event) => {
+          const t = event.target;
+          if (!t || !t.closest) return;
+          if (t.closest('.uV2eYG_primary') || t.closest('.uV2eYG_input')) record(type, event);
+        },
+        true
+      );
+    });
+  })();
 })();
