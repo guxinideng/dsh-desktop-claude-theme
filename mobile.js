@@ -1076,11 +1076,13 @@
   const VOICE_WAVE_BAR_HEIGHTS = [7, 12, 16, 10, 14, 8, 15, 11];
   const VOICE_DONE_DISPLAY_MS = 900;
   const VOICE_ERROR_DISPLAY_MS = 1500;
+  const VOICE_UPLOAD_TIMEOUT_MS = 20000;
 
   let voiceStream = null;
   let voiceRecorder = null;
   let voiceChunks = [];
   let voiceRecordingStartedAt = 0;
+  let voiceReleaseRequested = false;
 
   function getComposerGrow() {
     return document.querySelector('.uV2eYG_grow');
@@ -1170,14 +1172,23 @@
   }
 
   async function startVoiceRecording(overlay) {
-    if (voiceRecorder) return;
+    if (voiceRecorder || isVoiceMidFlow(overlay)) return;
+    voiceReleaseRequested = false;
     applyVoiceAccentColor(overlay);
+    let stream;
     try {
-      voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
       showVoiceError(overlay, '没有麦克风权限,请去设置里开启');
       return;
     }
+    if (voiceReleaseRequested) {
+      stream.getTracks().forEach((track) => track.stop());
+      voiceReleaseRequested = false;
+      setVoiceState(overlay, null);
+      return;
+    }
+    voiceStream = stream;
     voiceChunks = [];
     voiceRecordingStartedAt = Date.now();
     voiceRecorder = new MediaRecorder(voiceStream);
@@ -1189,7 +1200,10 @@
   }
 
   function stopVoiceRecording(overlay) {
-    if (!voiceRecorder) return;
+    if (!voiceRecorder) {
+      voiceReleaseRequested = true;
+      return;
+    }
     const recordedMs = Date.now() - voiceRecordingStartedAt;
     const recorder = voiceRecorder;
     voiceRecorder = null;
@@ -1211,8 +1225,11 @@
 
   async function uploadVoiceRecording(blob, overlay) {
     setVoiceState(overlay, 'ds-mobile-voice-busy');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), VOICE_UPLOAD_TIMEOUT_MS);
     try {
-      const res = await fetch('/__ds_theme/stt', { method: 'POST', body: blob });
+      const res = await fetch('/__ds_theme/stt', { method: 'POST', body: blob, signal: controller.signal });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if (data && data.text) {
         const textLayer = overlay.querySelector('.ds-mobile-voice-text');
@@ -1227,6 +1244,7 @@
         showVoiceError(overlay, '没听清,再试一次');
       }
     } catch {
+      clearTimeout(timeoutId);
       showVoiceError(overlay, '识别失败,请重试');
     }
   }
