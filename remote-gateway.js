@@ -322,6 +322,21 @@ function serveThemeAsset(pathname, res) {
 // browser-side equivalent by fetching dsh's own index HTML and splicing in
 // <link>/<script> tags before proxying it to the client.
 function serveThemedIndex(req, res) {
+  // Cache-busting stamp for the injected theme assets: the standalone
+  // ("添加到主屏幕") mode on iOS caches aggressively, and no-cache headers
+  // were still letting the phone run a stale mobile.js (user kept
+  // reporting fixes that "至始至终没有生效" — the code was fine, the
+  // phone never loaded it). URL ?v=<mtime> changes exactly when a file
+  // changes, forcing a fresh fetch then and only then.
+  const themeStamp = (() => {
+    try {
+      const t = fs.statSync(path.join(__dirname, 'mobile.css')).mtimeMs;
+      const j = fs.statSync(path.join(__dirname, 'mobile.js')).mtimeMs;
+      return Math.max(t, j).toString(36);
+    } catch {
+      return '1';
+    }
+  })();
   const upstream = http.get(DSH_URL + req.url, (dshRes) => {
     const chunks = [];
     dshRes.on('data', (chunk) => chunks.push(chunk));
@@ -344,11 +359,11 @@ function serveThemedIndex(req, res) {
         )
         .replace(
           '</head>',
-          '<link rel="stylesheet" href="/__ds_theme/theme.css">\n' +
-            '<link rel="stylesheet" href="/__ds_theme/mobile.css">\n' +
+          `<link rel="stylesheet" href="/__ds_theme/theme.css?v=${themeStamp}">\n` +
+            `<link rel="stylesheet" href="/__ds_theme/mobile.css?v=${themeStamp}">\n` +
             '</head>'
         )
-        .replace('</body>', '<script src="/__ds_theme/mobile.js"></script>\n</body>');
+        .replace('</body>', `<script src="/__ds_theme/mobile.js?v=${themeStamp}"></script>\n</body>`);
       // dsh serves this chunked (no content-length at all) — carrying that
       // header forward while also setting content-length below leaves both
       // present, which is an invalid combination (RFC 7230 §3.3.3) that had
