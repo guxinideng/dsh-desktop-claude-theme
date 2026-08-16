@@ -10,3 +10,4 @@ build/AppIcon.iconset/
 *.log
 .DS_Store
 .superpowers/
+whisper-models/
