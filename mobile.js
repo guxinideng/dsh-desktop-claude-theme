@@ -978,6 +978,7 @@
   let dragBaseX = 0; // translateX at gesture start: 0 if starting open, -dragWidth if starting closed
   let dragCurrentX = 0;
   let dragHapticFired = false;
+  let dragXGuardArmed = false;
   // True while a drag that *started inside the left-edge strip* is live.
   // Only such a drag attaches the non-passive edgeSwipeGuard (below), so
   // ordinary touches never pay the compositor's "wait for JS" tax a
@@ -1132,6 +1133,19 @@
         dragAxis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
       }
       if (dragAxis !== 'x') return;
+      // Committed horizontal drag: the browser's own scroll recognizer
+      // (touch-action: pan-y on the sidebar) must not steal the gesture
+      // mid-way — on iOS a slow swipe with slight vertical drift gets
+      // claimed as a scroll and fires pointercancel, settling the drawer
+      // while the finger is still moving ("手还在滑它自己回弹了"). A
+      // non-passive touchmove preventDefault (same pattern as
+      // edgeSwipeGuard) makes the recognizer back off for the rest of
+      // the gesture. Armed only after the axis lock, so scroll frames
+      // never wait on JS.
+      if (!dragXGuardArmed) {
+        dragXGuardArmed = true;
+        document.addEventListener('touchmove', dragXGuard, { passive: false });
+      }
 
       dragCurrentX = Math.max(-dragWidth, Math.min(0, dragBaseX + dx));
       setDragTransform(dragCurrentX);
@@ -1175,11 +1189,25 @@
     if (Math.abs(dx) > Math.abs(dy)) event.preventDefault();
   }
 
-  function settleSidebarDrag(event) {
+  // The committed-horizontal counterpart of edgeSwipeGuard: once the
+  // axis lock lands on 'x', every touchmove for the rest of the gesture
+  // is preventDefaulted so the browser's scroll recognizer can't claim
+  // the swipe and fire pointercancel mid-drag. See the pointermove
+  // comment for the user-visible bug this prevents.
+  function dragXGuard(event) {
+    if (dragStartX === null || dragAxis !== 'x') return;
+    event.preventDefault();
+  }
+
+  function settleSidebarDrag() {
     if (dragStartX === null) return;
     if (dragFromEdge) {
       document.removeEventListener('touchmove', edgeSwipeGuard);
       dragFromEdge = false;
+    }
+    if (dragXGuardArmed) {
+      document.removeEventListener('touchmove', dragXGuard);
+      dragXGuardArmed = false;
     }
     const wasDragging = dragAxis === 'x';
     dragStartX = null;
@@ -1194,19 +1222,12 @@
     settleAt(dragCurrentX);
 
     const openness = 1 + dragCurrentX / dragWidth;
-    // A pointercancel means the browser stole the gesture mid-drag —
-    // on iOS, a slow/diagonal swipe picks up enough vertical drift that
-    // the touch-action: pan-y scroll recognizer claims it and cancels
-    // the pointer while the finger is still down and still moving. The
-    // user is *mid-gesture*, not releasing, so the 28% commit threshold
-    // would snap the drawer back open under their finger ("还没松手它
-    // 自己回弹了"). Commit by direction instead: any travel toward the
-    // target side closes/opens it, matching what the finger was doing.
-    const cancelled = event && event.type === 'pointercancel';
-    const startedOpen = dragBaseX === 0;
-    const shouldOpen = cancelled
-      ? startedOpen ? dragCurrentX >= 0 : dragCurrentX < 0
-      : wouldCommitOpen(openness);
+    // Threshold commit (28%): dragging far enough flips the drawer,
+    // otherwise it snaps back. pointercancel is settled the same way —
+    // the dragXGuard above prevents the browser from cancelling a
+    // committed horizontal drag in the first place, so a cancel that
+    // does arrive is a genuine interruption and snapping back is right.
+    const shouldOpen = wouldCommitOpen(openness);
     // mobile.css's own `left` transition on .pI_x6G_sidebarCol carries
     // the rest of the way from wherever the drag let go to fully open
     // or fully closed — a one-shot, browser-driven transition rather
