@@ -253,27 +253,34 @@
   // tok/s; the time lives in its own element (timeStart), so it survives.
   // The row may not be rendered in every state, so this just re-runs on
   // the poll and trims whatever exists.
+  //
+  // NOTE (2026-08-16, corrected target): the row this must trim is dsh's
+  // MessageIconActions component — the per-message "21:33 · 用时 … ·
+  // deepdiving · 首 token … · … tok/s" footer — whose elements carry
+  // *_timeStart / *_runTimeDot / *_actions classes. An earlier version
+  // aimed at *turnStatus (the *other* status strip, which renders in
+  // different states), so the actual stats row was never touched and kept
+  // showing — the "从没成功过" report. Anchoring on the time element is
+  // the reliable handle: every stats row has one, and its closest
+  // *_actions ancestor is exactly the row to prune.
   function trimTurnStatusStats() {
     if (!isMobile()) return;
-    // class* not class$: the turn-status element can carry multiple
-    // classes, so an end-anchored match missed it (stats row kept
-    // rendering — user report).
-    document.querySelectorAll('[class*="turnStatus"]').forEach((row) => {
-      // Keep text that starts with an absolute clock time (21:33) or
-      // carries the deepdiving marker (the user wants to see which
-      // replies were deep-dives) — everything else on the row
-      // (· 用时 … · 首 token … · … tok/s) is emptied, and empty spans
-      // are removed so the row collapses to just time + marker.
+    document.querySelectorAll('[class$="_timeStart"]').forEach((timeEl) => {
+      const row = timeEl.closest('[class$="_actions"]') || timeEl.parentElement;
+      if (!row || row.dataset.dsTrimmed) return;
+      row.dataset.dsTrimmed = '1';
       const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
       const dead = [];
       let node;
       while ((node = walker.nextNode())) {
         const t = node.textContent || '';
-        if (t.trim() && !/^\s*\d{1,2}:\d{2}/.test(t) && !/deep\s*diving|深度思考/i.test(t)) dead.push(node);
+        if (/用时|首 token|tok\/s|tokensPerSecond|ttft/.test(t)) dead.push(node);
       }
       dead.forEach((node) => {
         node.textContent = '';
       });
+      // Drop the now-empty separator/dot spans so the row reads
+      // "21:33 · deepdiving" instead of "21:33 · · ·".
       row.querySelectorAll('span, div').forEach((el) => {
         if (!el.textContent.trim() && !el.querySelector('*')) el.remove();
       });
