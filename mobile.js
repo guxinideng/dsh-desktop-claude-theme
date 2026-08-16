@@ -269,20 +269,23 @@
   // *_timeStart) and kept missing the real row on the phone. This
   // version is structure-agnostic: any leaf text node that looks like a
   // stat (short, matches 用时/首 token/tok/s/ttft or a bare HH:MM clock)
-  // is emptied — deepdiving/深度思考 never matches, so it survives, and
-  // empty spans are swept so rows don't leave a trail of separators.
-  // Re-runs every poll in case dsh re-renders a row later.
+  // Keep ONLY the deepdiving marker in per-message stats footers, and
+  // drop everything else (用时 / 首 token / tok/s / the clock time).
+  // The previous fully-global version also removed empty spans, which
+  // wrecked the page (dsh mounts with plenty of temporarily-empty
+  // containers — user report: 整个网页空白). This version is confined to
+  // the message scroll area, empties text ONLY (never removes elements),
+  // and re-runs each poll so late-rendered rows get trimmed too.
   function trimTurnStatusStats() {
     if (!isMobile()) return;
-    document.querySelectorAll('*').forEach((el) => {
+    const scroll = document.querySelector('.wSkVaW_scrollBody');
+    if (!scroll) return;
+    scroll.querySelectorAll('*').forEach((el) => {
       if (el.children.length > 0) return;
       const t = (el.textContent || '').trim();
       if (t.length > 0 && t.length < 30 && /用时|首 ?token|tok\/s|tokensPerSecond|ttft|^\d{1,2}:\d{2}$/.test(t)) {
         el.textContent = '';
       }
-    });
-    document.querySelectorAll('span, div').forEach((el) => {
-      if (!el.textContent.trim() && !el.querySelector('*')) el.remove();
     });
   }
 
