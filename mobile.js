@@ -259,16 +259,17 @@
     // classes, so an end-anchored match missed it (stats row kept
     // rendering — user report).
     document.querySelectorAll('[class*="turnStatus"]').forEach((row) => {
-      // Keep ONLY text that starts with an absolute clock time (21:33) —
-      // everything else on the row (· 用时 … · deepdiving · 首 token … ·
-      // … tok/s) is emptied, and empty spans are removed so the row
-      // collapses to just the time instead of a trail of gaps.
+      // Keep text that starts with an absolute clock time (21:33) or
+      // carries the deepdiving marker (the user wants to see which
+      // replies were deep-dives) — everything else on the row
+      // (· 用时 … · 首 token … · … tok/s) is emptied, and empty spans
+      // are removed so the row collapses to just time + marker.
       const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
       const dead = [];
       let node;
       while ((node = walker.nextNode())) {
         const t = node.textContent || '';
-        if (t.trim() && !/^\s*\d{1,2}:\d{2}/.test(t)) dead.push(node);
+        if (t.trim() && !/^\s*\d{1,2}:\d{2}/.test(t) && !/deep\s*diving|深度思考/i.test(t)) dead.push(node);
       }
       dead.forEach((node) => {
         node.textContent = '';
