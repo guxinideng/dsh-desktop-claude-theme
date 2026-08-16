@@ -271,21 +271,24 @@
   // stat (short, matches 用时/首 token/tok/s/ttft or a bare HH:MM clock)
   // Keep ONLY the deepdiving marker in per-message stats footers, and
   // drop everything else (用时 / 首 token / tok/s / the clock time).
-  // The previous fully-global version also removed empty spans, which
-  // wrecked the page (dsh mounts with plenty of temporarily-empty
-  // containers — user report: 整个网页空白). This version is confined to
-  // the message scroll area, empties text ONLY (never removes elements),
-  // and re-runs each poll so late-rendered rows get trimmed too.
+  // Why every earlier version failed: the whole row often lives in ONE
+  // text node ("21:33 · 用时 2分15秒 · deepdiving · 首 token 28秒 · 106
+  // tok/s"), and the previous length cap (< 30 chars) excluded exactly
+  // that. No cap now: any leaf text that mentions 用时/首 token/tok/s is
+  // a stats row — if it also carries deepdiving/深度思考, the text is
+  // REPLACED with the marker alone; otherwise it's emptied. Confined to
+  // the message scroll area, never removes elements (removing empty
+  // containers during dsh's mount is what blanked the page before).
   function trimTurnStatusStats() {
     if (!isMobile()) return;
     const scroll = document.querySelector('.wSkVaW_scrollBody');
     if (!scroll) return;
     scroll.querySelectorAll('*').forEach((el) => {
       if (el.children.length > 0) return;
-      const t = (el.textContent || '').trim();
-      if (t.length > 0 && t.length < 30 && /用时|首 ?token|tok\/s|tokensPerSecond|ttft|^\d{1,2}:\d{2}$/.test(t)) {
-        el.textContent = '';
-      }
+      const t = el.textContent || '';
+      if (!t.trim()) return;
+      if (!/用时|首 ?token|tok\/s|tokensPerSecond|ttft/.test(t)) return;
+      el.textContent = /deep\s*diving|深度思考/i.test(t) ? 'deepdiving' : '';
     });
   }
 
