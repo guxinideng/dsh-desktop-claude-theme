@@ -158,6 +158,16 @@
     });
   }
 
+  // Hide it the instant the menu mounts, not up to 50ms later (the poll /
+  // click-delay could let "添加工作区…" flash for a frame — user report
+  // of it flickering on every open). A MutationObserver fires on the same
+  // microtask as the menu's DOM insertion, before the browser paints, so
+  // the entry never becomes visible.
+  const workspaceMenuObserver = new MutationObserver(() => {
+    if (isMobile()) hideAddWorkspaceMenuItem();
+  });
+  workspaceMenuObserver.observe(document.body, { childList: true, subtree: true });
+
   // Composer model-select button: dsh's own label is "DeepSeek-V4-Flash"
   // — the DeepSeek prefix is redundant here specifically (this whole
   // theme only exists for DeepSeek's own build of dsh, so every model in
@@ -679,49 +689,19 @@
     true
   );
 
-  // ── Workspace picker: the menu can overlap its trigger ──────────────
-  // dsh's workspace picker opens in a menu positioned a few px below its
-  // trigger (.pXSMma_workspace). On a phone the gap is small enough that
-  // real layouts land the menu ON the button — measured 4px of clearance
-  // in one viewport, and any safe-area/scroll drift can close it — so the
-  // second tap hits the menu, not the button, and the picker never toggles
-  // closed; only tapping another workspace or outside dismisses it (user
-  // report). Intercepting a touch on the button's rectangle while a menu
-  // is open and replaying the button's own click closes it
-  // deterministically: pointerdown's preventDefault suppresses the
-  // browser's synthetic click, so dsh's toggle runs exactly once (ours),
-  // and the case where the button was cleanly visible behaves identically
-  // to dsh's own handler.
-  document.addEventListener(
-    'pointerdown',
-    (event) => {
-      if (!isMobile()) return;
-      if (!document.querySelector('[role="menu"]')) return;
-      const btn = document.querySelector('.pXSMma_workspace');
-      if (!btn) return;
-      const r = btn.getBoundingClientRect();
-      if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) return;
-      event.preventDefault();
-      event.stopPropagation();
-      // Close the picker two ways so it closes no matter which listener
-      // dsh's current build hangs off the button:
-      //  1. Replay the button's own click (the earlier fix relied on this
-      //     alone; a dsh re-render can desync its open-state, making the
-      //     click a no-op re-open instead of a toggle — user report of
-      //     "再按一下收不回去了").
-      //  2. Dispatch an outside-pointerdown at the body: dsh's click-
-      //     outside handler treats any pointerdown outside the menu as
-      //     "dismiss", which is state-independent and always wins.
-      btn.click();
-      // Coordinates OUTSIDE the button's rect: this dispatched
-      // pointerdown must not re-enter this same interceptor (it checks
-      // the button's rect), or it would recurse forever.
-      document.body.dispatchEvent(
-        new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: Math.max(0, r.left - 24), clientY: r.top + 4 })
-      );
-    },
-    true
-  );
+  // ── Workspace picker: no special handling ────────────────────────────
+  // A prior fix here intercepted pointerdown on the trigger's rect while
+  // its menu was open and replayed the click plus a synthetic outside
+  // pointerdown, meant to force-close a picker that supposedly couldn't
+  // be toggled closed by a second tap. In practice that "fix" was the
+  // actual source of a flicker/stutter on repeated taps (user report,
+  // confirmed by comparing against the Agent-preset trigger next to it,
+  // which gets none of this special handling and toggles cleanly every
+  // time) — two state changes fired back-to-back in one event, racing
+  // dsh's own React state before the first one had committed. Removed;
+  // the workspace picker now behaves exactly like every other dsh menu
+  // trigger on this page, relying on dsh's own click-to-toggle and
+  // click-outside-to-dismiss.
 
   // Selecting a session (or starting a new one) should feel like
   // navigating, not "change the active chat but leave the list covering
