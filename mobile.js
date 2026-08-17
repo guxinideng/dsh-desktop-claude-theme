@@ -111,6 +111,10 @@
   // itself would leave the panel showing content with no visible tab
   // selected — clicking back to 通用设置 avoids that.
   function hideDisabledSettingsNavTabs() {
+    // Only meaningful while the settings dialog is mounted (it's a fresh
+    // portal per open) — skip the query entirely when it's closed, which
+    // is the common case for the 2s poll.
+    if (!settingsPanelEl()) return;
     const navCells = document.querySelectorAll('.VOzbGW_navCell');
     if (!navCells.length) return;
     let generalTab = null;
@@ -134,6 +138,7 @@
   // across all four), every settings row carries its own per-row hash
   // prefix, so text is the only stable handle across dsh versions.
   function hideSettingsAgentPresetRow() {
+    if (!settingsPanelEl()) return;
     document.querySelectorAll('.VOzbGW_options [class$="_row"]').forEach((row) => {
       const title = row.querySelector('[class$="_title"]');
       if (title && title.textContent.trim() === 'Agent 预设') {
@@ -222,6 +227,7 @@
     pinMobileToLight();
     autoDismissWelcomeNotice();
     trimTurnStatusStats();
+    observeMessageAreaForStats();
   }
 
   // The status-bar / Dynamic-Island strip in iOS (especially in the
@@ -267,10 +273,15 @@
   // overlay-hide fallback covers any state where the button isn't found.
   function autoDismissWelcomeNotice() {
     if (!isMobile()) return;
-    const btn = [...document.querySelectorAll('button')].find((b) => /继续|Continue/.test(b.textContent || ''));
-    if (btn) btn.click();
+    // Check the overlay first: the notice is normally absent, and a
+    // querySelector on it is far cheaper than walking every button on
+    // the page to look for 继续/Continue (which the old order did on
+    // every 2s poll).
     const overlay = document.querySelector('[class*="onboardingOverlay"], [class*="onboarding"]');
     if (overlay) overlay.style.display = 'none';
+    else return;
+    const btn = [...document.querySelectorAll('button')].find((b) => /继续|Continue/.test(b.textContent || ''));
+    if (btn) btn.click();
   }
 
   // Message turn-status rows show "21:33 · 用时 2分15秒 · 首 token 28秒 ·
@@ -306,6 +317,25 @@
   // REPLACED with the marker alone; otherwise it's emptied. Confined to
   // the message scroll area, never removes elements (removing empty
   // containers during dsh's mount is what blanked the page before).
+  // Empty the stat/marker text nodes inside ONE node subtree (a newly
+  // added message row, from the observer below). Same rule as the full
+  // walk: never removes elements, only empties matching text.
+  function trimNodeStats(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (/用时|首 ?token|tok\/s|tokensPerSecond|ttft|deep\s*diving|深度思考/.test(node.textContent || '')) {
+        node.textContent = '';
+      }
+      return;
+    }
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = walker.nextNode())) {
+      if (/用时|首 ?token|tok\/s|tokensPerSecond|ttft|deep\s*diving|深度思考/.test(n.textContent || '')) {
+        n.textContent = '';
+      }
+    }
+  }
+
   function trimTurnStatusStats() {
     if (!isMobile()) return;
     const scroll = document.querySelector('.wSkVaW_scrollBody');
@@ -318,13 +348,48 @@
     // lives in its own element (timeStart, kept visible by mobile.css),
     // so it survives. Never removes elements.
     const walker = document.createTreeWalker(scroll, NodeFilter.SHOW_TEXT);
-    const dead = [];
     let node;
     while ((node = walker.nextNode())) {
       const t = node.textContent || '';
       if (!/用时|首 ?token|tok\/s|tokensPerSecond|ttft|deep\s*diving|深度思考/.test(t)) continue;
       node.textContent = '';
     }
+  }
+
+  // Event-driven replacement for walking the whole message area every 2s:
+  // stats rows mount once with their text, so watching for NEW nodes and
+  // trimming only their subtrees (batched through requestAnimationFrame)
+  // costs a fraction of a full TreeWalker pass — dsh's streaming output
+  // mutates the list constantly, and the old poll re-walked everything
+  // each time. The observer is attached via the poll's idempotent
+  // observeMessageAreaForStats() because dsh can replace the scroll
+  // container on re-render, orphaning the observer (same re-observe
+  // pattern as observeModelLabel).
+  let statsTrimFrame = null;
+  let pendingTrimNodes = [];
+  const statsObserver = new MutationObserver((mutations) => {
+    if (!isMobile()) return;
+    for (const mutation of mutations) {
+      for (const added of mutation.addedNodes) {
+        if (added.nodeType === Node.ELEMENT_NODE || added.nodeType === Node.TEXT_NODE) {
+          pendingTrimNodes.push(added);
+        }
+      }
+    }
+    if (pendingTrimNodes.length && statsTrimFrame === null) {
+      statsTrimFrame = requestAnimationFrame(() => {
+        statsTrimFrame = null;
+        const batch = pendingTrimNodes;
+        pendingTrimNodes = [];
+        for (const node of batch) trimNodeStats(node);
+      });
+    }
+  });
+  function observeMessageAreaForStats() {
+    const scroll = document.querySelector('.wSkVaW_scrollBody');
+    if (!scroll || scroll.dataset.dsStatsObserved) return;
+    scroll.dataset.dsStatsObserved = '1';
+    statsObserver.observe(scroll, { childList: true, subtree: true });
   }
 
   // The 对话/轨迹 tab strip is hidden on mobile (mobile.css), but dsh can
@@ -459,7 +524,7 @@
     relocateContextRing();
     pinMobileToLight();
     autoDismissWelcomeNotice();
-    trimTurnStatusStats();
+    observeMessageAreaForStats();
     syncThemeColor();
   }, 2000);
 
@@ -1297,6 +1362,11 @@
   // matter how often it gets focused. The instant the user actually taps
   // the composer, the lock is dropped so the keyboard comes up normally.
   const KEYBOARD_LOCK_MS = 1500;
+  // True while one of the locks below is holding the composer readonly —
+  // lets the 150ms poll skip its DOM query entirely when nothing is
+  // locked (the common case), only touching the input when a lock is
+  // active or has just expired and the readonly needs clearing.
+  let keyboardReadonlyActive = false;
   document.addEventListener(
     'touchstart',
     (event) => {
@@ -1325,19 +1395,28 @@
   );
   setInterval(() => {
     if (!isMobile()) return;
+    const now = Date.now();
+    const inLock =
+      now - lastSessionNavAt < KEYBOARD_LOCK_MS || now - lastSendAt < SEND_FOCUS_BLOCK_MS;
+    if (!inLock) {
+      // No lock active — the common case. Skip the DOM query entirely;
+      // only touch the input when we're holding readonly from an expired
+      // lock and it needs clearing.
+      if (keyboardReadonlyActive) {
+        const input = document.querySelector('.uV2eYG_input');
+        if (input && input.readOnly) input.readOnly = false;
+        keyboardReadonlyActive = false;
+      }
+      return;
+    }
     const input = document.querySelector('.uV2eYG_input');
     if (!input) return;
-    const inNavLock = Date.now() - lastSessionNavAt < KEYBOARD_LOCK_MS;
-    const inSendLock = Date.now() - lastSendAt < SEND_FOCUS_BLOCK_MS;
-    if (inNavLock || inSendLock) {
-      // Re-assert every tick: dsh may replace the textarea or reset its
-      // properties on re-render, and the readonly is what actually keeps
-      // the keyboard off — blur alone lost this race before.
-      if (!input.readOnly) input.readOnly = true;
-      if (document.activeElement === input) input.blur();
-    } else if (input.readOnly) {
-      input.readOnly = false;
-    }
+    // Re-assert every tick: dsh may replace the textarea or reset its
+    // properties on re-render, and the readonly is what actually keeps
+    // the keyboard off — blur alone lost this race before.
+    if (!input.readOnly) input.readOnly = true;
+    if (document.activeElement === input) input.blur();
+    keyboardReadonlyActive = true;
   }, 150);
 
   // ── Post-send focus lock: no keyboard right after 发送/停止 ────────
