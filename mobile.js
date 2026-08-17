@@ -123,7 +123,12 @@
       const label = cell.textContent;
       if (label.includes('通用设置')) generalTab = cell;
       if (label.includes('模型') || label.includes('Agent 预设')) {
-        cell.classList.add('ds-mobile-hide');
+        // Removed, not hidden: the panel is a fresh portal per open, so
+        // the next open remounts the tabs and this removes them again —
+        // and a hidden tab could still flash for a frame before the
+        // 2s poll's display:none class landed (the "多余 UI 有时候会
+        // 出现" report). Removing beats hiding.
+        cell.remove();
         if (cell.classList.contains('VOzbGW_active')) activeIsHidden = true;
       }
     });
@@ -142,7 +147,8 @@
     document.querySelectorAll('.VOzbGW_options [class$="_row"]').forEach((row) => {
       const title = row.querySelector('[class$="_title"]');
       if (title && title.textContent.trim() === 'Agent 预设') {
-        row.classList.add('ds-mobile-hide');
+        // Removed, not hidden — same reasoning as the nav tabs above.
+        row.remove();
       }
     });
   }
@@ -158,7 +164,12 @@
   function hideAddWorkspaceMenuItem() {
     document.querySelectorAll('[role="menu"] [role="menuitem"]').forEach((item) => {
       if (item.textContent.trim().startsWith('添加工作区')) {
-        item.classList.add('ds-mobile-hide');
+        // Removed, not hidden: the menu remounts on every open, so each
+        // open removes it again — and a display:none item could still
+        // flash before the class landed (the "多余 UI 有时候会出现"
+        // report). Verified safe: removing this React-managed item and
+        // then interacting with the menu produces no console errors.
+        item.remove();
       }
     });
   }
@@ -269,8 +280,11 @@
   // the shipped WELCOME_NOTICE_VERSION, which after a config write-back
   // or fresh start keeps popping back up — and on a phone it's pure
   // friction ("每次点这个也挺烦"). Clicking its 继续/Continue button is
-  // the same acknowledgement the user would tap, so dsh records it; the
-  // overlay-hide fallback covers any state where the button isn't found.
+  // the same acknowledgement the user would tap, so dsh records the ack
+  // and unmounts the notice itself (React-safe removal — the notice is
+  // conditionally rendered, not a re-mounting portal). The overlay-hide
+  // fallback covers any state where the button isn't found or dsh hasn't
+  // unmounted it yet.
   function autoDismissWelcomeNotice() {
     if (!isMobile()) return;
     // Check the overlay first: the notice is normally absent, and a
@@ -278,11 +292,21 @@
     // the page to look for 继续/Continue (which the old order did on
     // every 2s poll).
     const overlay = document.querySelector('[class*="onboardingOverlay"], [class*="onboarding"]');
-    if (overlay) overlay.style.display = 'none';
-    else return;
+    if (!overlay) return;
+    overlay.style.display = 'none';
     const btn = [...document.querySelectorAll('button')].find((b) => /继续|Continue/.test(b.textContent || ''));
     if (btn) btn.click();
   }
+
+  // The 2s poll could leave the notice visible for up to 2s after it
+  // mounts — the "特别提醒有时候会出现" report. Dismiss it the instant
+  // the overlay lands: this observer fires on the same microtask as the
+  // DOM insertion, before the browser paints, so the notice never
+  // becomes visible at all.
+  const onboardingObserver = new MutationObserver(() => {
+    if (isMobile()) autoDismissWelcomeNotice();
+  });
+  onboardingObserver.observe(document.body, { childList: true, subtree: true });
 
   // Message turn-status rows show "21:33 · 用时 2分15秒 · 首 token 28秒 ·
   // 106 tok/s" — the absolute time is useful on a phone, the latency/rate
