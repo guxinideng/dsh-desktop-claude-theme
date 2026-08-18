@@ -39,9 +39,26 @@
 
   function tidyModelMenu() {
     document.querySelectorAll('[class*="_group"]').forEach(function (group) {
-      var title = group.querySelector('[class*="_groupTitle"]');
+      // `:scope >` is load-bearing. The attribute selector above is a
+      // substring match, so it also matches `_groups` — the container
+      // holding every group. A descendant lookup finds the first group's
+      // title through that container, and hiding the container hides the
+      // whole menu: the symptom is a model list with nothing in it.
+      // Restricting to direct children means only a real group answers.
+      var title = group.querySelector(':scope > [class*="_groupTitle"]');
       if (!title) return;
       var text = (title.textContent || '').trim();
+      // This runs on every mutation, so it has to be idempotent. Trimming
+      // the suffix renames the wrapped group to exactly "DeepSeek" — the
+      // same string the plain group carries — so a second pass would hide
+      // the one group worth keeping and leave the menu empty. The mark
+      // says "this one was the wrapped group before I renamed it". React
+      // drops it whenever it rebuilds the node, but that also restores the
+      // original title, so the two always agree.
+      if (group.dataset.dsVisionGroup === '1') {
+        group.style.display = '';
+        return;
+      }
       if (text === 'DeepSeek') {
         // Hidden rather than removed: if modlens ever fails to register, a
         // reload brings this group back on its own.
@@ -49,6 +66,7 @@
         return;
       }
       if (VISION_SUFFIX.test(text)) {
+        group.dataset.dsVisionGroup = '1';
         group.style.display = '';
         title.textContent = text.replace(VISION_SUFFIX, '');
       }
