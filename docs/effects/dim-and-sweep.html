@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>灰化 + 扫光:等待态效果</title>
+<style>
+  :root {
+    --accent: #d85a30;
+    --bg: #f7f6f4;
+    --card: #fff;
+    --ink: #2a2a32;
+    --ink-dim: #6b6b78;
+    --line: rgba(0, 0, 0, 0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17171a; --card: #1f1f24; --ink: #e8e8ec;
+      --ink-dim: #9a9aa6; --line: rgba(255, 255, 255, 0.1);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 20px 64px;
+    background: var(--bg); color: var(--ink);
+    font: 15px/1.7 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--ink-dim); margin: 0 0 32px; font-size: 14px; }
+  h2 { font-size: 15px; margin: 36px 0 12px; letter-spacing: 0.02em; }
+  p { margin: 0 0 14px; }
+  .note {
+    border-left: 2px solid var(--accent);
+    padding: 2px 0 2px 14px; margin: 0 0 20px;
+    color: var(--ink-dim); font-size: 14px;
+  }
+
+  /* ── 演示区 ───────────────────────────────────────────────────── */
+  .stage {
+    display: flex; gap: 24px; flex-wrap: wrap;
+    align-items: flex-start; margin-bottom: 8px;
+  }
+  .phone {
+    width: 300px; height: 400px; flex: none;
+    border: 1px solid var(--line); border-radius: 20px;
+    background: var(--card); overflow: hidden;
+    display: flex; flex-direction: column;
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.06);
+  }
+  .bar {
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+    font-size: 13px; color: var(--ink-dim); flex: none;
+  }
+  /* 扫光需要一个定位祖先:它是 absolute,要贴在内容区顶边 */
+  .pane { position: relative; flex: 1; overflow: hidden; }
+  .msgs { padding: 16px; }
+  .msg { margin-bottom: 14px; font-size: 14px; }
+  .msg b { display: block; font-size: 12px; color: var(--ink-dim); margin-bottom: 3px; font-weight: 500; }
+  .controls { flex: 1; min-width: 220px; }
+  button {
+    font: inherit; font-size: 14px; cursor: pointer;
+    padding: 9px 16px; border-radius: 9px;
+    border: 1px solid var(--line); background: var(--card); color: var(--ink);
+    margin: 0 8px 8px 0;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  .status { font-size: 13px; color: var(--ink-dim); margin-top: 6px; min-height: 1.7em; }
+
+  /* ── 效果本体:下面两条规则 + 一个 keyframes 就是全部 ────────── */
+  .is-waiting { opacity: 0.3; }
+  .dim-target { transition: opacity 0.18s ease; }
+
+  .sweep {
+    position: absolute; left: 0; right: 0; top: 0;
+    height: 2px; z-index: 6; pointer-events: none;
+    background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
+    background-size: 45% 100%;
+    background-repeat: no-repeat;
+    animation: sweep-across 0.9s ease-in-out infinite;
+  }
+  @keyframes sweep-across {
+    0%   { background-position: -45% 0; }
+    100% { background-position: 145% 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dim-target { transition: none; }
+    .sweep { animation: none; background: var(--accent); opacity: 0.4; }
+  }
+
+  /* ── 代码块 ──────────────────────────────────────────────────── */
+  pre {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 16px; overflow-x: auto;
+    font: 12.5px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace;
+    margin: 0 0 18px;
+  }
+  code { font: inherit; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 0 0 18px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--ink-dim); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>灰化 + 扫光</h1>
+  <p class="sub">一个等待态效果:把陈旧内容压暗,顶上跑一条光带,新内容到了就恢复。</p>
+
+  <p class="note">
+    这个效果原本用在 dsh 手机端的会话切换上,后来撤掉了 —— dsh 自己有一行
+    「载入历史…」,给那行字加动效就够了,再叠一层灰化是重复的,而且那行字
+    是准确的状态,灰化只是外部猜测。效果本身留在这里,换个场景还能用。
+  </p>
+
+  <h2>试一下</h2>
+  <div class="stage">
+    <div class="phone">
+      <div class="bar">会话:等待态该怎么做</div>
+      <div class="pane" id="pane">
+        <div class="msgs dim-target" id="msgs">
+          <div class="msg"><b>你</b>加载要等一会儿,放个转圈的行不行?</div>
+          <div class="msg"><b>助手</b>转圈只说明"在转",不说明等的是什么。这里屏幕上已经有旧内容了 —— 更该做的是让人看出它是旧的。</div>
+          <div class="msg"><b>你</b>所以压暗?</div>
+          <div class="msg"><b>助手</b>压暗回答"这是陈的",光带回答"还在动"。两句话都要说,一个都不多。</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="primary" id="go">模拟一次等待(1.6 秒)</button>
+      <button id="stop" disabled>提前结束</button>
+      <div class="status" id="status">点上面的按钮</div>
+    </div>
+  </div>
+
+  <h2>怎么用</h2>
+  <p>
+    调用方拿到一个结束函数,数据到了就调它。这一点和原版不同:原版自己去猜
+    什么时候该结束,给 <code>document.body</code> 装了一个带
+    <code>characterData</code> 的全文档 <code>MutationObserver</code>,
+    回调里还要取一次整个容器的 <code>textContent</code> 做全文比对。切到一个正在
+    流式输出的会话时,每吐一个字都会触发一次全文遍历。谁发起等待谁就知道
+    什么时候结束,不需要猜。
+  </p>
+
+<pre><code>function showWaiting(pane, dimTarget) {
+  dimTarget.classList.add('is-waiting');
+  const sweep = document.createElement('div');
+  sweep.className = 'sweep';
+  pane.appendChild(sweep);
+
+  let done = false;
+  return function end() {
+    if (done) return;   // 重复调用无害
+    done = true;
+    dimTarget.classList.remove('is-waiting');
+    sweep.remove();
+  };
+}
+
+// 用法
+const end = showWaiting(pane, msgs);
+const data = await fetchSomething();
+end();</code></pre>
+
+  <p>两条注意事项:</p>
+  <table>
+    <tr>
+      <th>事项</th>
+      <th>原因</th>
+    </tr>
+    <tr>
+      <td><code>pane</code> 需要是定位元素</td>
+      <td>扫光是 <code>position: absolute</code>,要贴在内容区顶边而不是整个视口。
+      给它 <code>position: relative</code> 即可 —— 但如果 <code>pane</code> 由框架
+      (React 等)管理,别去改它的 inline style,应当在自己的容器上加。</td>
+    </tr>
+    <tr>
+      <td>只动 <code>opacity</code></td>
+      <td>合成层属性,不触发布局。加上扫光的 <code>background-position</code>,
+      整个效果在手机上几乎不花代价。别改成动 <code>height</code> 或
+      <code>filter: blur()</code>。</td>
+    </tr>
+  </table>
+
+  <p>
+    如果承载内容的节点由框架管理,只加 class、不往里面插节点 —— 扫光应该
+    append 到你自己的容器上。往框架管理的容器里塞 DOM 会和它的重渲染打架。
+  </p>
+
+</div>
+
+<script>
+  // 效果本体 —— 就是上面那段,原样跑
+  function showWaiting(pane, dimTarget) {
+    dimTarget.classList.add('is-waiting');
+    const sweep = document.createElement('div');
+    sweep.className = 'sweep';
+    pane.appendChild(sweep);
+
+    let done = false;
+    return function end() {
+      if (done) return;
+      done = true;
+      dimTarget.classList.remove('is-waiting');
+      sweep.remove();
+    };
+  }
+
+  const pane = document.getElementById('pane');
+  const msgs = document.getElementById('msgs');
+  const go = document.getElementById('go');
+  const stop = document.getElementById('stop');
+  const status = document.getElementById('status');
+  let end = null;
+  let timer = null;
+
+  function finish(how) {
+    if (end) { end(); end = null; }
+    clearTimeout(timer);
+    go.disabled = false;
+    stop.disabled = true;
+    status.textContent = how;
+  }
+
+  go.addEventListener('click', () => {
+    end = showWaiting(pane, msgs);
+    go.disabled = true;
+    stop.disabled = false;
+    status.textContent = '等待中 —— 内容压暗,顶边有光带在跑';
+    timer = setTimeout(() => finish('新内容到了,恢复'), 1600);
+  });
+
+  stop.addEventListener('click', () => finish('被提前结束了'));
+</script>
+</body>
+</html>
