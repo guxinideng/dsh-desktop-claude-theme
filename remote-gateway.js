@@ -47,6 +47,7 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const os = require('os');
+const zlib = require('zlib');
 const crypto = require('crypto');
 const path = require('path');
 const httpProxy = require('http-proxy');
@@ -368,7 +369,63 @@ background:#28241f;color:#fff;border:none;border-radius:999px;padding:12px 36px;
 // the untouched Origin header and get every proxied request 403'd. Passing
 // the original inbound Host straight through keeps the two in sync, and
 // DSH_TRUSTED_HOSTS is what gets that Host authorized in the first place.
-const proxy = httpProxy.createProxyServer({ target: DSH_URL });
+const proxy = httpProxy.createProxyServer({ target: DSH_URL, selfHandleResponse: true });
+
+// Compress large text responses on the way out. dsh serves them
+// uncompressed — measured, /api/session.history for a long conversation
+// is 6.66MB with a transfer/decoded ratio of exactly 1.000 — and the
+// phone's path to it is Mac -> SSH tunnel -> VPS -> phone. nginx on the
+// VPS gzips its own leg, but by then the full 6.66MB has already gone up
+// the tunnel over a home connection's upload, which is the slow link in
+// the chain and the reason opening a long conversation drags.
+//
+// Scoped by content type only. Gating on a content-length threshold was
+// the first attempt and compressed nothing at all: dsh sends every API
+// response chunked, so there is no length to test and the condition was
+// never true.
+//
+// Streaming is handled by Z_SYNC_FLUSH instead. dsh streams the model's
+// output as chunked JSON — the same shape as the bulk responses, so it
+// can't be told apart by headers — and a default gzip stream would sit
+// on those tokens until its buffer filled, turning live output into
+// bursts. Z_SYNC_FLUSH emits a complete flush point per chunk, so each
+// one reaches the phone as it arrives. It costs some ratio (each chunk
+// compresses on its own), which is a fair trade here: the win is not
+// having to choose between compression and streaming.
+//
+// SSE is excluded outright — text/event-stream has no reason to be
+// compressed and is the one place where any added buffering is
+// immediately visible. WebSocket upgrades never reach this handler.
+const COMPRESSIBLE_TYPE = /application\/(json|javascript)|text\/|\+json/i;
+
+proxy.on('proxyRes', (proxyRes, req, res) => {
+  const headers = { ...proxyRes.headers };
+  const type = headers['content-type'] || '';
+  const acceptsGzip = /\bgzip\b/i.test(req.headers['accept-encoding'] || '');
+  const shouldCompress =
+    acceptsGzip &&
+    !headers['content-encoding'] &&
+    COMPRESSIBLE_TYPE.test(type) &&
+    !/text\/event-stream/i.test(type);
+
+  if (!shouldCompress) {
+    res.writeHead(proxyRes.statusCode, headers);
+    proxyRes.pipe(res);
+    return;
+  }
+
+  // Length changes once compressed, and stating the old one would
+  // truncate the body at the client.
+  delete headers['content-length'];
+  headers['content-encoding'] = 'gzip';
+  headers['vary'] = headers['vary'] ? `${headers['vary']}, Accept-Encoding` : 'Accept-Encoding';
+  res.writeHead(proxyRes.statusCode, headers);
+
+  const gzip = zlib.createGzip({ flush: zlib.constants.Z_SYNC_FLUSH });
+  gzip.on('error', () => res.destroy());
+  proxyRes.pipe(gzip).pipe(res);
+});
+
 proxy.on('error', (err, req, res) => {
   console.error('[gateway] proxy error:', err.message);
   if (res && !res.headersSent && typeof res.writeHead === 'function') {
