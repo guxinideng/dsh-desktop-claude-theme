@@ -1403,3 +1403,70 @@
     }
   }
 }
+
+@media (max-width: 640px) {
+
+  /* ── "载入历史…" ────────────────────────────────────────────────────────
+     dsh renders this hint while a session's history is still opening, as a
+     static line of 12px tertiary-grey text. Static text during a wait reads
+     as a stalled screen; the voice panel solved the same problem with a
+     sweep across the glyphs, so this borrows that language at a smaller
+     amplitude — the hint is one short line near the top of the view, not a
+     panel the user is staring into.
+
+     Two cycles, deliberately not multiples of each other (1.5s / 2.4s), so
+     the sweep and the bob drift in and out of phase instead of locking into
+     one mechanical beat. The bob is 2px: enough to register as alive at a
+     glance, small enough not to look like the layout is settling.
+
+     Everything here is CSS on dsh's own node. React owns this element and
+     unmounts it when history arrives, so there is nothing to clean up and
+     nothing for us to remove — the same discipline the rest of this file
+     follows around React-managed DOM. */
+  .Md3f7G_hint {
+    display: inline-block;
+    background: linear-gradient(
+      90deg,
+      rgba(152, 152, 164, 0.7) 22%,
+      rgba(88, 88, 104, 0.95) 44%,
+      rgba(152, 152, 164, 0.7) 66%
+    );
+    background-size: 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    /* Both properties, for the same reason as .ds-voice-shimmer above: some
+       WebKit builds render nothing from `color: transparent` alone. */
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    animation:
+      ds-hint-sweep 1.5s linear infinite,
+      ds-hint-bob 2.4s ease-in-out infinite;
+  }
+  @keyframes ds-hint-sweep {
+    from { background-position: 120% 0; }
+    to { background-position: -100% 0; }
+  }
+  @keyframes ds-hint-bob {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-2px); }
+  }
+  /* Without background-clip the gradient would paint over the text as a
+     block, so fall back to the plain colour and keep only the bob. */
+  @supports not (-webkit-background-clip: text) {
+    .Md3f7G_hint {
+      background: none;
+      color: var(--dsw-alias-label-tertiary);
+      -webkit-text-fill-color: currentColor;
+      animation: ds-hint-bob 2.4s ease-in-out infinite;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .Md3f7G_hint {
+      background: none;
+      color: var(--dsw-alias-label-tertiary);
+      -webkit-text-fill-color: currentColor;
+      animation: none;
+    }
+  }
+
+}
