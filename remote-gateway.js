@@ -70,11 +70,16 @@ const TLS_OPTS =
 // STT_MODEL_FILE  path to a ggml whisper.cpp model (default: bundled
 //                 whisper-models/ggml-large-v3-turbo-q5_0.bin next to this
 //                 file — see docs/superpowers/plans/2026-08-16-voice-to-text-composer.md)
-// STT_WHISPER_BIN whisper.cpp CLI binary                       (default "whisper-cli")
-// STT_TIMEOUT_MS  max time allowed for ffmpeg + whisper-cli     (default 30000)
+// STT_WHISPER_BIN whisper.cpp server binary                    (default "whisper-server")
+// STT_PORT        port the whisper server binds to             (default 8178)
+// STT_IDLE_MINUTES  idle time before the loaded model is released (default 10)
+// STT_TIMEOUT_MS  max time allowed for ffmpeg + transcription   (default 60000)
 const STT_MODEL_FILE =
   process.env.STT_MODEL_FILE || path.join(__dirname, 'whisper-models', 'ggml-large-v3-turbo-q5_0.bin');
-const STT_WHISPER_BIN = process.env.STT_WHISPER_BIN || 'whisper-cli';
+const STT_WHISPER_BIN = process.env.STT_WHISPER_BIN || 'whisper-server';
+const STT_PORT = Number(process.env.STT_PORT) || 8178;
+const STT_IDLE_MS = (Number(process.env.STT_IDLE_MINUTES) || 10) * 60 * 1000;
+const STT_URL = `http://127.0.0.1:${STT_PORT}`;
 // Raised from 30s: whisper.cpp transcribes longer recordings slower than
 // short ones, and a multi-sentence hold used to blow the 30s budget and
 // fail the whole request (paired with the client's 20s abort in mobile.js,
@@ -197,6 +202,157 @@ function getCookie(req, name) {
   return null;
 }
 
+// ── Whisper server: loaded on demand, released when idle ──────────────
+// Transcription used to spawn whisper-cli per request, which reloads the
+// 574MB model every time. Measured on a 2.6s clip: 290ms of that was
+// load time against 578ms of actual inference — and 290ms is the good
+// case, with the model still in the OS file cache. Once it ages out,
+// that turn re-reads 574MB from disk, which is where "sometimes fast,
+// sometimes slow" came from.
+//
+// A resident server loads the model once: same clip went 0.84-1.15s
+// (spread 0.31s) to 0.58-0.60s (spread 0.02s) — faster, and steady.
+// The cost is 725MB resident, which is real on a machine that's already
+// tight, so it follows the same shape as dsh above: started on the first
+// request that needs it, stopped after STT_IDLE_MS with no transcription.
+// Speaking a few sentences in a row pays the load once; leaving it alone
+// gives the memory back.
+let whisperChild = null;
+let whisperStarting = null;
+let lastSttAt = 0;
+
+function pingWhisper(timeoutMs) {
+  return new Promise((resolve) => {
+    const req = http.get(`${STT_URL}/`, { timeout: timeoutMs }, (res) => {
+      res.resume();
+      resolve(true);
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+function spawnWhisper() {
+  const args = ['-m', STT_MODEL_FILE, '-l', 'zh', '--port', String(STT_PORT)];
+  console.log(`[gateway] starting whisper server on ${STT_PORT}`);
+  const child = spawn(STT_WHISPER_BIN, args, { stdio: 'pipe' });
+  // Its startup chatter (Metal init, model layers) is noise unless
+  // something is wrong; only surface a non-zero exit.
+  child.stdout.resume();
+  child.stderr.resume();
+  child.on('exit', (code) => {
+    if (code) console.error(`[gateway] whisper server exited (code ${code})`);
+    if (whisperChild === child) whisperChild = null;
+  });
+  child.on('error', (err) => {
+    console.error(`[gateway] failed to start whisper server: ${err.message}`);
+    if (whisperChild === child) whisperChild = null;
+  });
+  return child;
+}
+
+async function ensureWhisperReady() {
+  if (await pingWhisper(500)) return;
+  if (whisperStarting) return whisperStarting;
+
+  whisperStarting = (async () => {
+    if (!(await pingWhisper(500))) {
+      whisperChild = spawnWhisper();
+    }
+    // Model load is the whole wait here; large-v3-turbo takes a few
+    // seconds cold, and the phone is already showing its own "识别中".
+    const deadline = Date.now() + 60000;
+    while (Date.now() < deadline) {
+      if (await pingWhisper(700)) return;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+    throw new Error('whisper server 启动超时');
+  })();
+
+  try {
+    await whisperStarting;
+  } finally {
+    whisperStarting = null;
+  }
+}
+
+function killIdleWhisper() {
+  if (!whisperChild) return;
+  if (Date.now() - lastSttAt < STT_IDLE_MS) return;
+  console.log('[gateway] whisper idle, releasing the model');
+  const child = whisperChild;
+  whisperChild = null;
+  child.kill('SIGTERM');
+  setTimeout(() => {
+    try {
+      child.kill('SIGKILL');
+    } catch {
+      // already gone
+    }
+  }, 5000).unref();
+}
+
+setInterval(killIdleWhisper, 60000).unref();
+
+// Posts the converted wav to the resident server as multipart/form-data.
+// Hand-built because this is the only multipart request the gateway
+// makes and it has exactly two fields — pulling in a form library for
+// that would be more moving parts than the encoding itself.
+function transcribeViaServer(wavPath, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const boundary = `----dsh${crypto.randomBytes(12).toString('hex')}`;
+    const audio = fs.readFileSync(wavPath);
+    const head = Buffer.from(
+      `--${boundary}\r\n` +
+        'Content-Disposition: form-data; name="file"; filename="audio.wav"\r\n' +
+        'Content-Type: audio/wav\r\n\r\n'
+    );
+    const tail = Buffer.from(
+      `\r\n--${boundary}\r\n` +
+        'Content-Disposition: form-data; name="response_format"\r\n\r\njson\r\n' +
+        `--${boundary}--\r\n`
+    );
+    const payload = Buffer.concat([head, audio, tail]);
+
+    const req = http.request(
+      `${STT_URL}/inference`,
+      {
+        method: 'POST',
+        timeout: timeoutMs,
+        headers: {
+          'content-type': `multipart/form-data; boundary=${boundary}`,
+          'content-length': payload.length,
+        },
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf8');
+          if (res.statusCode !== 200) {
+            reject(new Error(`whisper server ${res.statusCode}: ${body.slice(0, 200)}`));
+            return;
+          }
+          try {
+            resolve((JSON.parse(body).text || '').trim());
+          } catch {
+            reject(new Error(`whisper server returned non-JSON: ${body.slice(0, 200)}`));
+          }
+        });
+      }
+    );
+    req.on('error', reject);
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error(`whisper server timed out after ${timeoutMs}ms`));
+    });
+    req.end(payload);
+  });
+}
+
 function readRequestBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -237,8 +393,11 @@ async function handleStt(req, res) {
   const id = crypto.randomUUID();
   const inputPath = path.join(os.tmpdir(), `dsh-stt-${id}.input`);
   const wavPath = path.join(os.tmpdir(), `dsh-stt-${id}.wav`);
-  const outBase = path.join(os.tmpdir(), `dsh-stt-${id}`);
-  const txtPath = `${outBase}.txt`;
+
+  // Recorded before the work, not after: it's what keeps the idle timer
+  // from releasing the model out from under a transcription that's
+  // still running.
+  lastSttAt = Date.now();
 
   try {
     const audio = await readRequestBody(req);
@@ -249,14 +408,15 @@ async function handleStt(req, res) {
     }
     fs.writeFileSync(inputPath, audio);
 
+    // ffmpeg still runs: the phone records whatever its browser produces
+    // (mp4/webm), and this pins it to the 16kHz mono wav whisper expects
+    // rather than relying on the server's decoder to accept it.
     await runCommand('ffmpeg', ['-y', '-i', inputPath, '-ar', '16000', '-ac', '1', wavPath], STT_TIMEOUT_MS);
-    await runCommand(
-      STT_WHISPER_BIN,
-      ['-m', STT_MODEL_FILE, '-f', wavPath, '-l', 'zh', '-nt', '-np', '-otxt', '-of', outBase],
-      STT_TIMEOUT_MS
-    );
 
-    const text = fs.readFileSync(txtPath, 'utf8').trim();
+    await ensureWhisperReady();
+    const text = await transcribeViaServer(wavPath, STT_TIMEOUT_MS);
+    lastSttAt = Date.now();
+
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ text }));
   } catch (err) {
@@ -264,7 +424,7 @@ async function handleStt(req, res) {
     res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' });
     res.end(JSON.stringify({ error: 'stt failed' }));
   } finally {
-    for (const p of [inputPath, wavPath, txtPath]) {
+    for (const p of [inputPath, wavPath]) {
       fs.unlink(p, () => {});
     }
   }
@@ -832,6 +992,9 @@ server.listen(GATEWAY_PORT, '127.0.0.1', () => {
 function shutdown() {
   console.log('[gateway] shutting down');
   if (dshChild) dshChild.kill('SIGTERM');
+  // Without this the whisper server outlives the gateway and holds its
+  // 725MB for nothing — nothing would ever call it again.
+  if (whisperChild) whisperChild.kill('SIGTERM');
   process.exit(0);
 }
 process.on('SIGINT', shutdown);
