@@ -1338,6 +1338,51 @@
     font-family: 'Songti SC', ui-serif, Georgia, serif !important;
   }
 
+  /* ── Waiting states ─────────────────────────────────────────────────
+     Measured on a session switch: the tap lands, and for about a second
+     the message area still shows the PREVIOUS conversation, then swaps
+     to the new one all at once. Nothing on screen says anything is
+     happening, so it reads as "tapped, nothing happened… then it
+     flickered". Same shape as the voice pause the user liked: dim what's
+     stale, run a quiet sweep while waiting, fade the real thing in.
+
+     Only opacity and transform are animated — both composited, neither
+     triggers layout — so this costs nothing on a phone and can't disturb
+     dsh's own rendering. mobile.js adds/removes the class; it never
+     touches the DOM inside. */
+  .wSkVaW_scrollBody {
+    transition: opacity 0.18s ease;
+  }
+  .wSkVaW_scrollBody.ds-mobile-switching {
+    opacity: 0.3;
+  }
+
+  /* The sweep sits above the dimmed content rather than replacing it:
+     swapping in a skeleton would be a second layout pass for something
+     that lasts under a second. */
+  .ds-mobile-switch-sweep {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 2px;
+    z-index: 6;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      var(--ds-voice-accent, #d85a30) 50%,
+      transparent 100%
+    );
+    background-size: 45% 100%;
+    background-repeat: no-repeat;
+    animation: ds-mobile-sweep 0.9s ease-in-out infinite;
+  }
+  @keyframes ds-mobile-sweep {
+    0% { background-position: -45% 0; }
+    100% { background-position: 145% 0; }
+  }
+
   /* Reduced motion (2026-08-17): collapse the non-voice chrome
      animations to instant. The voice waveform/shimmer are deliberately
      left running — they were tuned with the user and, being purely
@@ -1348,6 +1393,13 @@
     .VOzbGW_panel {
       transition: none !important;
       animation: none !important;
+    }
+    /* The sweep animates; the dim doesn't. Keep the dim — it's the part
+       that actually says "this content is stale" — and drop the motion. */
+    .ds-mobile-switch-sweep {
+      animation: none !important;
+      background: var(--ds-voice-accent, #d85a30);
+      opacity: 0.4;
     }
   }
 }
