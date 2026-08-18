@@ -455,6 +455,35 @@ function serveThemedIndex(req, res) {
     dshRes.on('data', (chunk) => chunks.push(chunk));
     dshRes.on('end', () => {
       let body = Buffer.concat(chunks).toString('utf8');
+
+      // dsh is plugin-based: window.__DSH_BOOT__ at the top of <head>
+      // lists every client plugin with its full versioned URL, but they
+      // are fetched by the core bundle, so nothing starts downloading
+      // them until that bundle has itself downloaded, parsed and run.
+      // Measured on a session load: core at 56ms, first plugins at 88ms,
+      // the large UI ones (conversation 417KB, trajectory 351KB) not
+      // until ~370ms — a serial stall that is most of the wait before
+      // anything renders.
+      //
+      // The URLs are already in the markup, so preload links let the
+      // browser start all of them while it is still parsing <head>,
+      // in parallel with the core bundle instead of after it. Parsed
+      // out of the boot payload rather than hardcoded: each URL carries
+      // a ?rev= hash that changes per dsh build, and a stale list would
+      // silently double-fetch. Preload is a hint — a URL that no longer
+      // matches costs one wasted request and nothing else.
+      const pluginPreloads = (() => {
+        const urls = [...body.matchAll(/"url":"(\/plugins\/[^"]+)"/g)].map((m) => m[1]);
+        if (!urls.length) return '';
+        // No crossorigin attribute: a preload is only reused if it matches
+        // the real request, and dsh loads these same-origin plugins with a
+        // plain <script src>. Adding it made every plugin download twice —
+        // 38 requests became 75 — which is worse than not preloading at all.
+        return (
+          [...new Set(urls)].map((u) => `<link rel="preload" as="script" href="${u}">`).join('\n') + '\n'
+        );
+      })();
+
       body = body
         // Pinch-zoom fights the drawer's own swipe gestures more than it
         // helps on a chat UI that already reflows its own text size — this
@@ -490,7 +519,11 @@ function serveThemedIndex(req, res) {
           // seam. Whether iOS actually renders this couldn't be checked
           // here — it only shows launching from a real home-screen icon,
           // which needs a physical device.
-          '<meta name="theme-color" content="#FAF9F5">\n' +
+          // Preloads go first: they only help to the extent the browser
+          // sees them early, and everything below is either a meta tag
+          // or a stylesheet the parser handles regardless of order.
+          pluginPreloads +
+            '<meta name="theme-color" content="#FAF9F5">\n' +
             '<meta name="apple-mobile-web-app-capable" content="yes">\n' +
             '<meta name="apple-mobile-web-app-status-bar-style" content="default">\n' +
             '<meta name="apple-mobile-web-app-title" content="DeepSeek">\n' +
