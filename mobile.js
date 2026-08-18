@@ -1477,9 +1477,23 @@
   // 的时间长一点就转译不出来"). 60s covers multi-sentence holds while
   // still failing fast on a genuinely stuck server.
   const VOICE_UPLOAD_TIMEOUT_MS = 60000;
-  // After this long in the wait panel, the status line switches to a
-  // "longer clip" copy (whisper transcribes long recordings slowly).
-  const VOICE_WAIT_RETEXT_MS = 8000;
+  // Two stages of wait copy, both time-based and neither claiming to know
+  // progress. The old single stage said "音频较长" at 8s, which guesses at
+  // a cause and guesses wrong as often as not: the slowest transcription
+  // is the FIRST one after the gateway has released the whisper model,
+  // where the wait is model load and has nothing to do with clip length —
+  // measured 1.49s cold against 0.59s warm for the same audio. Saying
+  // "音频较长" to someone who just spoke three words reads as the app
+  // being confused.
+  //
+  // So: 2.5s switches to a neutral line, and past 9s the panel starts
+  // showing elapsed seconds. That last part is dsh's own trick from
+  // "Deep diving..." — it holds the clock back 15s and only then admits
+  // how long it's been. A number that appears early makes a short wait
+  // feel supervised; one that appears only once the wait is genuinely
+  // long answers the question the user has actually started asking.
+  const VOICE_WAIT_RETEXT_MS = 2500;
+  const VOICE_WAIT_CLOCK_MS = 9000;
   // Below this, a touch is a tap (type manually); at or above, it's a
   // hold (start recording). ~150ms is roughly how long a normal tap
   // lasts; 200ms gives a little slack without making holds feel laggy.
@@ -1501,6 +1515,7 @@
   let voiceTouchStartY = 0;
   let voiceCancelArmed = false;
   let voiceWaitTimer = null;
+  let voiceWaitClockTimer = null;
 
   function getComposerGrow() {
     return document.querySelector('.uV2eYG_grow');
@@ -1993,13 +2008,18 @@
     ensureVoiceWaitPanel();
     setVoiceWaitVisible(true);
     setVoiceWaitLabel('正在转写语音');
-    // Wait-panel copy starts neutral; if whisper is taking a while (long
-    // clips transcribe slower — the 60s budget exists for that), switch
-    // to a longer-wait line so the panel reads as alive, not stuck. Time-
-    // based, never fake progress.
+    // Staged wait copy — see the constants above for why it doesn't
+    // blame clip length any more.
     clearTimeout(voiceWaitTimer);
+    clearInterval(voiceWaitClockTimer);
+    const waitStartedAt = Date.now();
     voiceWaitTimer = setTimeout(() => {
-      setVoiceWaitLabel('音频较长，快好了…');
+      setVoiceWaitLabel('还在转写');
+      voiceWaitClockTimer = setInterval(() => {
+        const elapsed = Date.now() - waitStartedAt;
+        if (elapsed < VOICE_WAIT_CLOCK_MS) return;
+        setVoiceWaitLabel(`还在转写 ${Math.round(elapsed / 1000)}s`);
+      }, 1000);
     }, VOICE_WAIT_RETEXT_MS);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), VOICE_UPLOAD_TIMEOUT_MS);
@@ -2015,17 +2035,20 @@
         // way through; nothing changes after the animation settles.
         const text = cleanSttText(data.text);
         clearTimeout(voiceWaitTimer);
+        clearInterval(voiceWaitClockTimer);
         setVoiceWaitVisible(false);
         overlay.classList.add('ds-mobile-voice-hidden');
         setVoiceState(overlay, null);
         typeVoiceTextIntoComposer(text);
       } else {
         clearTimeout(voiceWaitTimer);
+        clearInterval(voiceWaitClockTimer);
         setVoiceWaitVisible(false);
         showVoiceError(overlay, '没听清,再试一次');
       }
     } catch {
       clearTimeout(voiceWaitTimer);
+      clearInterval(voiceWaitClockTimer);
       setVoiceWaitVisible(false);
       clearTimeout(timeoutId);
       showVoiceError(overlay, '识别失败,请重试');
