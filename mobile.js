@@ -189,6 +189,51 @@
     }
   }
 
+  // The model menu carries two groups for the same models: the plain
+  // DeepSeek route, and modlens's wrapped copy. The wrapped one is a
+  // superset — same model, same route underneath, and it can also read a
+  // pasted image — so the plain group is only ever the worse pick, and
+  // showing both means choosing between two entries that differ by a
+  // parenthetical.
+  //
+  // The suffix is modlens's, built as `${model.name ?? model.id} (modlens
+  // vision)`. It has no config knob, and on a phone it does real damage:
+  // the menu row is narrow enough that "V4 Flash (modlens vision)" gets
+  // truncated mid-word.
+  //
+  // Text edits plus a display toggle — nothing added, moved, or removed,
+  // so React keeps owning this subtree.
+  const VISION_SUFFIX = /\s*\(modlens vision\)\s*$/;
+
+  function tidyModelMenu() {
+    document.querySelectorAll('[class*="_group"]').forEach((group) => {
+      const title = group.querySelector('[class*="_groupTitle"]');
+      if (!title) return;
+      const text = (title.textContent || '').trim();
+      if (text === 'DeepSeek') {
+        // Hidden, not removed: if modlens ever fails to register its
+        // wrapper, a reload brings this group back by itself.
+        group.style.display = 'none';
+        return;
+      }
+      if (VISION_SUFFIX.test(text)) {
+        group.style.display = '';
+        title.textContent = text.replace(VISION_SUFFIX, '');
+      }
+      group.querySelectorAll('[class*="_modelName"]').forEach((el) => {
+        const name = el.textContent || '';
+        if (VISION_SUFFIX.test(name)) el.textContent = name.replace(VISION_SUFFIX, '');
+      });
+    });
+
+    document
+      .querySelectorAll('[class*="_triggerLabel"], [class*="_cellValue"]')
+      .forEach((el) => {
+        const name = el.textContent || '';
+        if (VISION_SUFFIX.test(name)) el.textContent = name.replace(VISION_SUFFIX, '');
+      });
+  }
+
   // Switching models used to visibly flash the full "DeepSeek-V4-Flash"
   // for a moment before settling back to "V4-Flash" — dsh re-renders this
   // label the instant a new model is picked, but the strip above only
@@ -229,6 +274,7 @@
     const claim = () => {
       if (pending.has('model') && document.querySelector('._7KE1Ra_triggerLabel')) {
         stripDeepSeekPrefix();
+        tidyModelMenu();
         observeModelLabel();
         pending.delete('model');
       }
@@ -273,6 +319,7 @@
     hideSettingsAgentPresetRow();
     hideAddWorkspaceMenuItem();
     stripDeepSeekPrefix();
+    tidyModelMenu();
     observeModelLabel();
     syncTrajectoryTabStrip();
     relocateContextRing();
@@ -281,6 +328,19 @@
     autoDismissWelcomeNotice();
     trimTurnStatusStats();
     installFirstPaintWatcher();
+    // The model menu only renders once it's opened, and the poll below is
+    // on a 1s cycle — so for up to a second after the tap, the untrimmed
+    // name is what's actually on screen. Re-running on the click itself
+    // closes that window instead of shortening it (same reasoning as
+    // observeModelLabel above). Capture phase, and a 0ms defer so dsh's
+    // own click handler has rendered the menu by the time this runs.
+    document.addEventListener(
+      'click',
+      () => {
+        setTimeout(tidyModelMenu, 0);
+      },
+      true
+    );
   }
 
   // The status-bar / Dynamic-Island strip in iOS (especially in the
@@ -513,6 +573,7 @@
     hideAddWorkspaceMenuItem();
     syncSettingsPanelHeight();
     stripDeepSeekPrefix();
+    tidyModelMenu();
     observeModelLabel();
     syncTrajectoryTabStrip();
     relocateContextRing();
