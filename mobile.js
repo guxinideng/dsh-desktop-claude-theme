@@ -207,6 +207,64 @@
     });
   }
 
+  // Everything in init() looks for elements dsh may not have rendered
+  // yet: this file loads at </body>, and measured on a session load the
+  // core bundle finishes at 63ms while mobile.js isn't done until 109ms.
+  // Each of those functions bails when its target is missing, so the fix
+  // for a missing element used to be "wait for the next poll" — up to 2s
+  // for the model label, 1s for the voice overlay. That wait is exactly
+  // what shows: dsh paints "DeepSeek-V4-Flash" and an empty composer,
+  // then a beat later the prefix disappears and a waveform appears.
+  //
+  // This watches for those elements instead of polling for them, so each
+  // one is handled on the same frame it mounts. It disconnects as soon as
+  // everything it's waiting for has been claimed — the ongoing polls and
+  // per-element observers already cover later re-renders, so there's no
+  // reason to keep a document-wide observer alive past first paint.
+  function installFirstPaintWatcher() {
+    if (!isMobile()) return;
+    const pending = new Set(['model', 'voice', 'ring', 'tabs']);
+    let observer = null;
+
+    const claim = () => {
+      if (pending.has('model') && document.querySelector('._7KE1Ra_triggerLabel')) {
+        stripDeepSeekPrefix();
+        observeModelLabel();
+        pending.delete('model');
+      }
+      if (pending.has('voice') && document.querySelector('.uV2eYG_grow')) {
+        bindVoiceOverlay();
+        bindSendButtonForVoiceRecall();
+        pending.delete('voice');
+      }
+      if (pending.has('ring') && document.querySelector('.JObwrW_root')) {
+        relocateContextRing();
+        pending.delete('ring');
+      }
+      if (pending.has('tabs') && document.querySelector('.wSkVaW_tabs')) {
+        syncTrajectoryTabStrip();
+        pending.delete('tabs');
+      }
+      if (!pending.size && observer) {
+        observer.disconnect();
+        observer = null;
+      }
+    };
+
+    observer = new MutationObserver(claim);
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    claim();
+
+    // Ceiling: if something never mounts (a view that doesn't have it),
+    // don't leave a document-wide observer running for the session.
+    setTimeout(() => {
+      if (observer) {
+        observer.disconnect();
+        observer = null;
+      }
+    }, 15000);
+  }
+
   function init() {
     if (!isMobile()) return;
     ensureDshExpanded();
@@ -222,6 +280,7 @@
     pinMobileToLight();
     autoDismissWelcomeNotice();
     trimTurnStatusStats();
+    installFirstPaintWatcher();
   }
 
   // The status-bar / Dynamic-Island strip in iOS (especially in the
@@ -1477,23 +1536,21 @@
   // 的时间长一点就转译不出来"). 60s covers multi-sentence holds while
   // still failing fast on a genuinely stuck server.
   const VOICE_UPLOAD_TIMEOUT_MS = 60000;
-  // Two stages of wait copy, both time-based and neither claiming to know
-  // progress. The old single stage said "音频较长" at 8s, which guesses at
-  // a cause and guesses wrong as often as not: the slowest transcription
-  // is the FIRST one after the gateway has released the whisper model,
-  // where the wait is model load and has nothing to do with clip length —
-  // measured 1.49s cold against 0.59s warm for the same audio. Saying
-  // "音频较长" to someone who just spoke three words reads as the app
-  // being confused.
+  // One neutral copy change, no counter. The line this replaced said
+  // "音频较长" at 8s, which guesses at a cause and often guesses wrong:
+  // the slowest transcription is the FIRST one after the gateway has
+  // released the whisper model, where the wait is model load and has
+  // nothing to do with clip length (measured 1.49s cold against 0.59s
+  // warm for the same audio). Telling someone who just spoke three words
+  // that their clip is long reads as the app being confused.
   //
-  // So: 2.5s switches to a neutral line, and past 9s the panel starts
-  // showing elapsed seconds. That last part is dsh's own trick from
-  // "Deep diving..." — it holds the clock back 15s and only then admits
-  // how long it's been. A number that appears early makes a short wait
-  // feel supervised; one that appears only once the wait is genuinely
-  // long answers the question the user has actually started asking.
+  // An elapsed-seconds counter was tried here too and removed: the panel
+  // already has a moving progress bar saying the work is underway, and a
+  // number ticking next to it turns waiting into watching a clock. The
+  // user's word for it was 焦虑. Motion answers "is it alive"; a counter
+  // answers "how much longer", which is a question this can't actually
+  // answer — whisper reports no progress until it's done.
   const VOICE_WAIT_RETEXT_MS = 2500;
-  const VOICE_WAIT_CLOCK_MS = 9000;
   // Below this, a touch is a tap (type manually); at or above, it's a
   // hold (start recording). ~150ms is roughly how long a normal tap
   // lasts; 200ms gives a little slack without making holds feel laggy.
@@ -1515,7 +1572,6 @@
   let voiceTouchStartY = 0;
   let voiceCancelArmed = false;
   let voiceWaitTimer = null;
-  let voiceWaitClockTimer = null;
 
   function getComposerGrow() {
     return document.querySelector('.uV2eYG_grow');
@@ -2008,18 +2064,10 @@
     ensureVoiceWaitPanel();
     setVoiceWaitVisible(true);
     setVoiceWaitLabel('正在转写语音');
-    // Staged wait copy — see the constants above for why it doesn't
-    // blame clip length any more.
+    // One copy change, no counter — see the constants above.
     clearTimeout(voiceWaitTimer);
-    clearInterval(voiceWaitClockTimer);
-    const waitStartedAt = Date.now();
     voiceWaitTimer = setTimeout(() => {
       setVoiceWaitLabel('还在转写');
-      voiceWaitClockTimer = setInterval(() => {
-        const elapsed = Date.now() - waitStartedAt;
-        if (elapsed < VOICE_WAIT_CLOCK_MS) return;
-        setVoiceWaitLabel(`还在转写 ${Math.round(elapsed / 1000)}s`);
-      }, 1000);
     }, VOICE_WAIT_RETEXT_MS);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), VOICE_UPLOAD_TIMEOUT_MS);
@@ -2035,20 +2083,17 @@
         // way through; nothing changes after the animation settles.
         const text = cleanSttText(data.text);
         clearTimeout(voiceWaitTimer);
-        clearInterval(voiceWaitClockTimer);
         setVoiceWaitVisible(false);
         overlay.classList.add('ds-mobile-voice-hidden');
         setVoiceState(overlay, null);
         typeVoiceTextIntoComposer(text);
       } else {
         clearTimeout(voiceWaitTimer);
-        clearInterval(voiceWaitClockTimer);
         setVoiceWaitVisible(false);
         showVoiceError(overlay, '没听清,再试一次');
       }
     } catch {
       clearTimeout(voiceWaitTimer);
-      clearInterval(voiceWaitClockTimer);
       setVoiceWaitVisible(false);
       clearTimeout(timeoutId);
       showVoiceError(overlay, '识别失败,请重试');
