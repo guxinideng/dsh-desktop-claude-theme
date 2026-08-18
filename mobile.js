@@ -814,74 +814,12 @@
       // sidebar out from under that menu yanks it off screen along with
       // its now-offscreen anchor.
       if (row && event.target.closest('.YDXeBa_rowActions')) return;
-      showSwitchingState();
       // Let dsh apply the selection first — closing mid-click can race the
       // row's own click handler on some browsers.
       setTimeout(closeSidebar, 150);
     },
     true
   );
-
-  // ── Waiting state for a session switch ────────────────────────────────
-  // Measured: the tap registers, then for ~1s the message area still shows
-  // the PREVIOUS conversation before swapping to the new one in a single
-  // jump. Nothing indicates work is happening, so it reads as a dead tap
-  // followed by a flicker. This dims the stale content and runs a sweep
-  // until the new content lands.
-  //
-  // Ends on content actually changing rather than a fixed timeout: how
-  // long it takes depends on conversation size and, on the phone, the
-  // tunnel. A timer would either uncover the old text too early or hold
-  // the dim after the new text was already there. The timeout that does
-  // exist is only a ceiling so a failed load can't dim the pane forever.
-  const SWITCH_STATE_MAX_MS = 8000;
-  let switchSweepEl = null;
-  let switchObserver = null;
-  let switchTimeout = null;
-
-  function endSwitchingState() {
-    clearTimeout(switchTimeout);
-    switchTimeout = null;
-    if (switchObserver) {
-      switchObserver.disconnect();
-      switchObserver = null;
-    }
-    if (switchSweepEl) {
-      switchSweepEl.remove();
-      switchSweepEl = null;
-    }
-    document.querySelectorAll('.ds-mobile-switching').forEach((el) => {
-      el.classList.remove('ds-mobile-switching');
-    });
-  }
-
-  function showSwitchingState() {
-    const body = document.querySelector('.wSkVaW_scrollBody');
-    if (!body) return;
-    endSwitchingState();
-
-    const baseline = (body.textContent || '').length;
-    body.classList.add('ds-mobile-switching');
-
-    // The sweep is parented to the scroll body's own offset parent so it
-    // spans the message column rather than the whole viewport.
-    const host = body.parentElement || body;
-    if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
-    switchSweepEl = document.createElement('div');
-    switchSweepEl.className = 'ds-mobile-switch-sweep';
-    host.appendChild(switchSweepEl);
-
-    switchObserver = new MutationObserver(() => {
-      const current = document.querySelector('.wSkVaW_scrollBody');
-      if (!current) return;
-      // A meaningful swap, not the incidental re-render that dsh does on
-      // selection: require the text to have actually moved.
-      if (Math.abs((current.textContent || '').length - baseline) > 80) endSwitchingState();
-    });
-    switchObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
-
-    switchTimeout = setTimeout(endSwitchingState, SWITCH_STATE_MAX_MS);
-  }
 
   // Session rows are draggable="true" (dsh lets you reorder them by
   // dragging on desktop). On a phone that collides head-on with the
