@@ -23,6 +23,7 @@
 //
 // Usage:
 //   node gemini-key-pool.js add [label]   add a key at a hidden prompt
+//   node gemini-key-pool.js import        adopt the key modlens already has
 //   node gemini-key-pool.js list          show keys, masked, with state
 //   node gemini-key-pool.js rm <n>        remove key number n
 //   node gemini-key-pool.js serve         run the proxy (default port 3099)
@@ -131,6 +132,38 @@ async function cmdAdd(label) {
   });
   save(data);
   console.log(`已添加 ${data.keys[data.keys.length - 1].label} (${mask(key)}),池中共 ${data.keys.length} 把。`);
+}
+
+// modlens 早就配过一把 key,再从 AI Studio 复制一遍只是多一次经手、
+// 多一次暴露机会。这条命令在两个本地文件之间搬,值不打印也不进 argv。
+async function cmdImport() {
+  const src = path.join(os.homedir(), '.modlens', 'config.json');
+  let key;
+  try {
+    const cfg = JSON.parse(fs.readFileSync(src, 'utf8'));
+    key = cfg?.providers?.['gemini-api']?.apiKey || cfg?.providers?.gemini?.apiKey;
+  } catch {
+    console.error(`读不到 ${src}`);
+    process.exit(1);
+  }
+  if (!key) {
+    console.error(`${src} 里没有 gemini key。`);
+    process.exit(1);
+  }
+  const data = load();
+  if (data.keys.some((k) => k.key === key)) {
+    console.log(`modlens 那把 (${mask(key)}) 已经在池子里了,没重复添加。`);
+    return;
+  }
+  data.keys.push({
+    label: 'modlens 导入',
+    key,
+    cooldownUntil: 0,
+    requests: 0,
+    exhausted: 0,
+  });
+  save(data);
+  console.log(`已从 modlens 导入 (${mask(key)}),池中共 ${data.keys.length} 把。`);
 }
 
 function cmdList() {
@@ -300,6 +333,9 @@ switch (cmd) {
   case 'add':
     cmdAdd(arg);
     break;
+  case 'import':
+    cmdImport();
+    break;
   case 'list':
     cmdList();
     break;
@@ -316,6 +352,7 @@ switch (cmd) {
         'gemini-key-pool — 多账号 Gemini key 池,额度耗尽自动换下一个',
         '',
         `  node ${path.basename(__filename)} add [名字]   添加一把 key(隐藏输入)`,
+        `  node ${path.basename(__filename)} import       把 modlens 已配的那把搬进来`,
         `  node ${path.basename(__filename)} list         查看池中的 key(已遮蔽)`,
         `  node ${path.basename(__filename)} rm <序号>    移除一把`,
         `  node ${path.basename(__filename)} serve        启动代理(默认 ${PORT} 端口)`,
