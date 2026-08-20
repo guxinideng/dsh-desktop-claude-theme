@@ -213,7 +213,14 @@ function spawnVendoredDsh(binPath) {
     .split(',')
     .map((h) => h.trim())
     .filter(Boolean);
-  const dshArgs = ['--expose-internals', binPath, 'web', '--port', String(DSH_PORT)];
+  // --no-open is required from dsh 0.1.0-rc.8 onward: that release made
+  // `dsh web` open the default browser on startup. Harmless when you run it
+  // yourself from a terminal, wrong here — this app IS the window, so every
+  // launch would also throw a browser tab at the same URL. The flag does not
+  // exist before rc.8, so a vendored copy older than that would refuse to
+  // start on an unknown option; scripts/vendor-dsh.sh pins the version this
+  // app is built against, and both moved to rc.8 together.
+  const dshArgs = ['--expose-internals', binPath, 'web', '--no-open', '--port', String(DSH_PORT)];
   for (const host of trustedHosts) dshArgs.push('--trusted-host', host);
   const child = spawn(process.execPath, dshArgs, {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
