@@ -43,15 +43,31 @@ function readKeys() {
   return { dsKey, gKey };
 }
 
+// 按扩展名判 MIME。写死成 image/png 会让 .webp/.jpg 顶着错误的类型
+// 发出去 —— 两边的解码器未必都容忍这种不一致,而报错信息通常只说
+// "invalid argument",很难反查到是类型标错了。
+const MIME = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp', '.gif': 'image/gif', '.heic': 'image/heic',
+};
+
 const { dsKey, gKey } = readKeys();
-const b64s = images.map((p) => ({ name: path.basename(p), b64: fs.readFileSync(p).toString('base64') }));
+const b64s = images.map((p) => {
+  const ext = path.extname(p).toLowerCase();
+  const mime = MIME[ext];
+  if (!mime) {
+    console.error(`不认识的图片格式: ${ext || '(无扩展名)'} —— 支持 ${Object.keys(MIME).join(' ')}`);
+    process.exit(1);
+  }
+  return { name: path.basename(p), mime, b64: fs.readFileSync(p).toString('base64') };
+});
 
 async function deepseek() {
   const t0 = Date.now();
   if (!dsKey) return { who: 'DeepSeek', ms: 0, err: '没读到 DEEPSEEK_API_KEY' };
   const content = [{ type: 'text', text: question }];
-  for (const { b64 } of b64s) {
-    content.push({ type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } });
+  for (const { b64, mime } of b64s) {
+    content.push({ type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } });
   }
   try {
     const r = await fetch('https://api.deepseek.com/chat/completions', {
@@ -76,7 +92,7 @@ async function gemini() {
   const t0 = Date.now();
   if (!gKey) return { who: 'Gemini', ms: 0, err: '没读到 gemini key' };
   const parts = [{ text: question }];
-  for (const { b64 } of b64s) parts.push({ inline_data: { mime_type: 'image/png', data: b64 } });
+  for (const { b64, mime } of b64s) parts.push({ inline_data: { mime_type: mime, data: b64 } });
   try {
     const r = await fetch(
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent',
@@ -103,11 +119,30 @@ for (const r of results) {
 }
 console.log('─'.repeat(58));
 
-// 只比数字:两边说法不同但数字一致,通常是同一个意思换了措辞。
-// 数字不一致才是真分歧 —— 而计数正是这个模型已知的弱项。
-const nums = results.map((r) => (r.txt || '').match(/\d+/g)?.join('|') || '');
+// 判定。第一版只会比数字,四道实测题里误报了三次:两个人物识别题的
+// 答案里根本没有数字,却被判成"数字不一致",而其中一题两边其实说的是
+// 同一个人。分歧有三种,各自的意思完全不同,不能都塞进一句话里。
 if (results.every((r) => !r.err)) {
-  console.log(nums[0] && nums[0] === nums[1]
-    ? '\n两边数字一致。'
-    : '\n⚠ 两边数字不一致 —— 至少有一个是错的,建议自己核一遍。');
+  const unsure = results.map((r) => /不确定|无法确[认定]|不能确[认定]|not sure|cannot (?:be )?determine/i.test(r.txt));
+  const nums = results.map((r) => (r.txt || '').match(/\d+/g)?.join('|') || '');
+
+  console.log();
+  if (unsure[0] && unsure[1]) {
+    // 两边都认怂:再问第三次也是白问,是这张图超出了它们的能力,
+    // 而不是其中某一个不行。
+    console.log('两边都说不确定 —— 这张图超出了它们的能力,换个模型问也未必有用。');
+  } else if (unsure[0] !== unsure[1]) {
+    // 实测过两次:雷军那张 Gemini 认得、DeepSeek 不认;梁文锋那张
+    // 正好反过来。这不是谁强谁弱,是两边知识面不重合。
+    const who = results[unsure[0] ? 1 : 0].who;
+    console.log(`只有 ${who} 给出了答案,另一边说不确定 —— 两边知识面不一样,这种时候单边的答案也值得看,但要自己核。`);
+  } else if (nums[0] && nums[1] && nums[0] !== nums[1]) {
+    // 数字对不上才是真分歧,而计数正是 DeepSeek 已知的弱项。
+    console.log('⚠ 两边数字不一致 —— 至少有一个是错的,建议自己数一遍。');
+  } else if (nums[0] && nums[0] === nums[1]) {
+    console.log('两边数字一致。');
+  } else {
+    // 都答了、都没数字:是不是同一个意思得你自己读,程序判不了。
+    console.log('两边都给了答案,自己比对一下措辞。');
+  }
 }
