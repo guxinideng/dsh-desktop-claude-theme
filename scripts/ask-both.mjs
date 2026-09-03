@@ -73,9 +73,14 @@ async function deepseek() {
     const r = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${dsKey}` },
-      // 上限给足:它会先思考再作答,思考也算输出 token。设小了会出现
-      // finish_reason=length 而正文一个字都没有的空返回。
-      body: JSON.stringify({ model: 'deepseek-v4-flash-vision-exp', max_tokens: 4000,
+      // 上限给足:它先思考再作答,思考也计入输出 token。设小了会出现
+      // finish_reason=length 而正文一个字都没有的空返回 —— 表现像模型
+      // 坏了,其实是被这个数掐死的。
+      //
+      // 4000 也不够:一道"尽可能详细描述整张图"的题就把 4000 烧光在
+      // 思考上,正文全无。这类开放式任务的思考量和封闭问答不是一个量级。
+      // 32000 是留足余量,反正没用到的部分不计费。
+      body: JSON.stringify({ model: 'deepseek-v4-flash-vision-exp', max_tokens: 32000,
         messages: [{ role: 'user', content }] }),
     });
     const j = await r.json();
