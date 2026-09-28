@@ -19,7 +19,7 @@
 | 项目 | `dsh-desktop-claude-theme`（github.com/guxinideng，本地 `/Users/secondcomputer/Documents/Claude/Projects/dsh-desktop-claude-theme`） |
 | 工作分支 | `claude/dsh-mobile-remote-control-a8o0af`（**最新代码在此分支的 `ce5b8fc`**；本地 `main` 停在 `b73f813`，勿在 main 上改） |
 | dsh 服务 | `http://127.0.0.1:3080`（本机，DeepSeek Harness） |
-| 网关 | `remote-gateway.js`，`127.0.0.1:3090`（launchd 服务，token：`6f205d80c63052f95e7271029427130b`，可 `?token=` 访问） |
+| 网关 | `remote-gateway.js`，`127.0.0.1:3090`（launchd 服务，token：`<GATEWAY_TOKEN>`，可 `?token=` 访问） |
 | 手机访问 | iOS 26 独立模式（添加到主屏幕）：`https://deepseek.jiecaisongai.shop` → Cloudflare → VPS → autossh 回 Mac 网关 |
 | 注入机制 | 网关把 `mobile.css` / `mobile.js` 注入 dsh 的 index HTML，URL 带 `?v=<mtime>` 缓存戳（改文件后手机刷新即生效） |
 | 移动判定 | `window.innerWidth <= 640`（`mobile.js` 的 `isMobile()`） |
@@ -77,7 +77,7 @@
 ## 8. 验证环境速查
 
 - Electron 测试（能验证 readonly/blur 的 DOM 效果，不能验证 focus 事件时序）：
-  `env -u ELECTRON_RUN_AS_NODE PATH="/opt/homebrew/bin:$PATH" node_modules/.bin/electron <script>.js`，窗口 420×860，页面 `http://127.0.0.1:3090/?token=6f205d80c63052f95e7271029427130b`（gateway 注入最新 mobile.js；改文件后无需重启 gateway，`?v=` 自动变）。
+  `env -u ELECTRON_RUN_AS_NODE PATH="/opt/homebrew/bin:$PATH" node_modules/.bin/electron <script>.js`，窗口 420×860，页面 `http://127.0.0.1:3090/?token=<GATEWAY_TOKEN>`（gateway 注入最新 mobile.js；改文件后无需重启 gateway，`?v=` 自动变）。
 - `mobile.js` 末尾有 `window.__dsVoiceDebug` 调试钩子（语音动画用）。
 - 改完文件 → 手机刷新页面（或删主屏图标重加）验证。网关无重启需求（每次请求读文件）。
 - 提交到 `claude/dsh-mobile-remote-control-a8o0af` 分支并 push。
