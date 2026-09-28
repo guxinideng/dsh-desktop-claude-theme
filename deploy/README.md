@@ -9,7 +9,7 @@
 手机 (大陆, Shadowrocket)
   │  https://deepseek.jiecaisongai.shop:443
   ▼
-VPS 38.150.33.206 nginx stream (SNI 分流, stream-conf.d/sni-443.conf)
+VPS <VPS_IP> nginx stream (SNI 分流, stream-conf.d/sni-443.conf)
   │  SNI=deepseek.jiecaisongai.shop -> 127.0.0.1:4445 (vhost, TLS + HTTP/2)
   ▼
 vhost: conf.d/deepseek.jiecaisongai.shop.conf
@@ -25,7 +25,7 @@ Mac: dsh 本体 :3080
 
 ## 文件清单
 
-### VPS (root@38.150.33.206, 对应路径 = 仓库路径去掉 deploy/vps/)
+### VPS (<SSH_USER>@<VPS_IP>, 对应路径 = 仓库路径去掉 deploy/vps/)
 | 仓库文件 | VPS 实际位置 | 作用 |
 |---|---|---|
 | `vps/nginx.conf` | `/etc/nginx/nginx.conf` | gzip、keepalive 1000、worker 调优、stream 块 |
