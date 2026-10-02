@@ -1,4 +1,4 @@
-const { app, BrowserWindow, protocol, net, dialog, ipcMain } = require('electron');
+const { app, BrowserWindow, protocol, net, dialog, ipcMain, shell } = require('electron');
 const { spawn, execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -44,6 +44,13 @@ const LOADING_HTML = `<!DOCTYPE html>
 // selected paths only. The renderer never reads file contents through
 // this; the agent opens the paths itself with its own tools.
 ipcMain.handle('dsh-desktop:pick-files', async (event) => {
+  // Only the dsh page itself may open a native dialog. Without this check any
+  // frame inside the window (an iframe, or a page the window got navigated to)
+  // that can reach the exposed bridge could pop file dialogs and harvest
+  // local paths — the Electron security checklist's "validate the sender of
+  // all IPC messages".
+  const senderUrl = (event.senderFrame && event.senderFrame.url) || '';
+  if (!(senderUrl === DSH_URL || senderUrl.startsWith(DSH_URL + '/'))) return [];
   const win = BrowserWindow.fromWebContents(event.sender);
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
     properties: ['openFile', 'multiSelections'],
@@ -67,7 +74,12 @@ function registerFontProtocol() {
   protocol.handle('dshfont', (request) => {
     // dshfont://f/<name>.woff2 — read the name off the pathname, which
     // preserves case (hostnames get lowercased by the standard scheme).
-    const name = path.basename(decodeURIComponent(new URL(request.url).pathname));
+    let name;
+    try {
+      name = path.basename(decodeURIComponent(new URL(request.url).pathname));
+    } catch {
+      return new Response('bad request', { status: 400 });
+    }
     const file = path.join(__dirname, 'fonts', name);
     if (!file.startsWith(path.join(__dirname, 'fonts') + path.sep)) {
       return new Response('forbidden', { status: 403 });
@@ -296,6 +308,31 @@ function createWindow() {
   });
 
   win.loadURL(DSH_URL);
+
+  // Keep this window on dsh. A link in a chat message or tool output with
+  // target=_blank / window.open used to get Electron's default (a second
+  // in-app window), and a plain navigation would replace the dsh page — and
+  // the dom-ready hook below would then inject theme scripts into whatever
+  // site that was. Web links go to the system browser instead, and only
+  // http(s): handing file:, dshfont: or custom schemes to shell.openExternal
+  // is how a rendered link turns into local code execution.
+  const openExternalSafely = (url) => {
+    try {
+      const { protocol: scheme } = new URL(url);
+      if (scheme === 'http:' || scheme === 'https:') shell.openExternal(url);
+    } catch {
+      // unparseable URL — drop it
+    }
+  };
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalSafely(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (event, url) => {
+    if (url === DSH_URL || url.startsWith(DSH_URL + '/')) return;
+    event.preventDefault();
+    openExternalSafely(url);
+  });
 
   const applyTheme = () => {
     win.webContents.insertCSS(THEME_CSS);
