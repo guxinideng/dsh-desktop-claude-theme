@@ -58,6 +58,17 @@ npm start
 - **Windows 版还没有在真实 Windows 机器上跑过。** 这个项目是在 macOS 上交叉构建 Windows 版的,只做了静态验证(包内容、PE 资源、图标嵌入),没有做过真实启动测试。如果你发现问题,欢迎开 issue。
 - 这里的视觉选择(配色、字体、布局宽度)是一个人的个人品味,写死在代码里。想要不一样的效果,从 `theme.css` 和 `font-picker.js` 改起。
 
+## 安全须知(手机远程访问 / `remote-gateway.js`)
+
+dsh 能在你的电脑上执行命令,所以**拿到网关 token 就等于拿到你这台机器的命令执行权**。
+
+- `GATEWAY_TOKEN` 只放在 launchd plist 或进程环境变量里。**不要写进文档、README、聊天记录、截图,也不要写进任何 URL 示例**(文档里用 `<GATEWAY_TOKEN>` 占位)。URL 里的 `?token=` 会进浏览器历史、分享面板和各种代理日志。
+- 用强随机值,例如 `openssl rand -hex 32`(纯十六进制:URL 里不会被转义,也和 `deploy/vps/` 里 nginx 按 `[a-f0-9]+` 取 cookie 缓存键的写法兼容)。不要用 base64(含 `+ / =`,放进 `?token=` 会被解析坏)。
+- 首次用 `https://你的域名/?token=<GATEWAY_TOKEN>` 打开后,网关会换成 HttpOnly cookie 并立刻跳转到不带 token 的地址;老书签/主屏图标继续可用。换 token 后,旧书签和旧 cookie 立即失效,需用新 token 的链接打开一次。
+- 没设置 `GATEWAY_TOKEN` 时,网关只接受来自本机的请求,经隧道/反代转进来的请求一律拒绝。
+- 同一地址连续鉴权失败 20 次(5 分钟内)会被封 15 分钟。验证脚本:`node scripts/test-gateway-auth.mjs`。
+- 一旦 token 出现在任何公开或共享的地方(包括 git 历史),视为已泄露:**轮换它**,而不是只删文件。部署快照 `deploy/` 里的 token、IP、SSH 端口一律是占位符,真实值只存在于本机。
+
 ## 许可证
 
 本仓库中的代码采用 MIT 许可证——见 `LICENSE`。公开版中还内置了 DeepSeek Harness(MIT)和两款开源字体(SIL OFL 1.1);完整版权信息见 `NOTICE.md`。

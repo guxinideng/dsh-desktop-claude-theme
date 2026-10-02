@@ -7,10 +7,10 @@
     <key>ProgramArguments</key>
     <array>
         <string>/opt/homebrew/bin/node</string>
-        <string>/Users/secondcomputer/Documents/Claude/Projects/dsh-desktop-claude-theme/remote-gateway.js</string>
+        <string>/Users/secondcomputer/Documents/项目/dsh-desktop-claude-theme/remote-gateway.js</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/secondcomputer/Documents/Claude/Projects/dsh-desktop-claude-theme</string>
+    <string>/Users/secondcomputer/Documents/项目/dsh-desktop-claude-theme</string>
     <key>EnvironmentVariables</key>
     <dict>
         <key>GATEWAY_TOKEN</key>

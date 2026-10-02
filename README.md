@@ -100,6 +100,17 @@ Requires `dsh web` already running at `127.0.0.1:3080`.
   taste, hardcoded. If you want something different, `theme.css` and
   `font-picker.js` are where to start.
 
+## Security notes (phone remote access / `remote-gateway.js`)
+
+dsh can run commands on your machine, so **whoever holds the gateway token can run commands on it**.
+
+- Keep `GATEWAY_TOKEN` in the launchd plist or the process environment only. **Never put it in docs, READMEs, chat logs, screenshots, or any example URL** (docs use the `<GATEWAY_TOKEN>` placeholder). A `?token=` in a URL ends up in browser history, share sheets and proxy logs.
+- Use a strong random value, e.g. `openssl rand -hex 32` (plain hex: nothing to URL-escape, and compatible with the nginx `[a-f0-9]+` cookie cache-key map in `deploy/vps/`). Avoid base64 (`+ / =` get mangled inside `?token=`).
+- Open `https://your-domain/?token=<GATEWAY_TOKEN>` once; the gateway swaps it for an HttpOnly cookie and redirects to the same URL without the token. Existing bookmarks / home-screen icons keep working. After a rotation, old bookmarks and cookies stop working until opened once with the new token.
+- With no `GATEWAY_TOKEN` set, the gateway only serves requests from the local machine and refuses anything arriving through a tunnel/proxy.
+- 20 failed auth attempts from one address within 5 minutes blocks it for 15 minutes. Check script: `node scripts/test-gateway-auth.mjs`.
+- If a token ever shows up anywhere public or shared (git history included), treat it as leaked: **rotate it**, don't just delete the file. Everything under `deploy/` uses placeholders for token / IP / SSH port; real values live only on your machine.
+
 ## License
 
 The code in this repository is MIT-licensed — see `LICENSE`. It bundles

@@ -63,6 +63,7 @@ launchctl kickstart -k gui/$(id -u)/com.secondcomputer.dsh-remote-gateway
 
 - **GATEWAY_TOKEN 已打码** (`CHANGE_ME`)：真实 token 只存在于 Mac 本机
   `~/Library/LaunchAgents/com.secondcomputer.dsh-remote-gateway.plist`，请勿提交真实值。
+- plist 里 `ProgramArguments` / `WorkingDirectory` 必须指向仓库**当前**所在路径。仓库搬过家(旧路径 `Documents/Claude/Projects/…` → `Documents/项目/…`)而 plist 没改时,launchd 因找不到工作目录直接拒绝启动(`launchctl list` 里最后退出码 78 / EX_CONFIG)。
 - VPS 登录用密钥 (`~/.ssh/dsh_remote_gateway_vps`)，不是密码；密码也从未进过仓库。
 - `/__ds_theme/` 缓存 1h：改 mobile.js/css 后手机最多 1h 内看到新版
   （页面 URL 的 `?v=<mtime>` 会自动换号，实际立刻生效，因为 URL 变了不会命中旧缓存）。
