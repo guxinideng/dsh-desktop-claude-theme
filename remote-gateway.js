@@ -28,10 +28,24 @@
 //   IDLE_MINUTES    idle time with no open connections before     (default 30)
 //                   dsh is stopped
 //   GATEWAY_TOKEN   shared secret required to use the gateway —
-//                   visit once as ?token=<value>, the gateway sets
-//                   a cookie so the page's own requests (including
-//                   the WebSocket) stay authorized after that.
-//                   Unset = no auth; only safe on a trusted network.
+//                   visit once as ?token=<value>, the gateway sets a
+//                   cookie and immediately redirects to the same URL with
+//                   the token stripped (so it doesn't linger in browser
+//                   history / share sheets / screenshots — see the 2026
+//                   incident where a ?token= URL got pasted straight into
+//                   a handoff doc), and the page's own requests (including
+//                   the WebSocket) stay authorized off the cookie after
+//                   that. A bookmarked ?token=... URL (home-screen icon)
+//                   keeps working forever: the redirect only drops the
+//                   query from *that* navigation, never rewrites what's
+//                   saved on the phone.
+//                   Unset = no auth, but only ever honored from a request
+//                   whose effective client address is loopback (see
+//                   clientAddr below) — a gateway someone forgot to set a
+//                   token on before exposing it through a tunnel refuses
+//                   non-local traffic instead of silently standing open.
+//                   Repeated failed auth attempts from one address are
+//                   throttled (see AUTH_FAIL_MAX/AUTH_BLOCK_MS below).
 //   TLS_CERT_FILE   PEM cert (with TLS_KEY_FILE) to serve HTTPS instead of
 //   TLS_KEY_FILE    plain HTTP — required for real phone browsers to work at
 //                   all off a bare IP: they treat plain-http non-loopback
@@ -93,9 +107,9 @@ const CHECK_INTERVAL_MS = Math.max(5000, Math.min(60000, IDLE_MS / 4));
 
 if (!TOKEN) {
   console.warn(
-    '[gateway] GATEWAY_TOKEN 未设置——任何能连到这个端口的人都能直接操作 dsh。' +
-      '只在受信任的网络(比如自己的 Tailscale tailnet)里这样用；' +
-      '一旦隧道更公开，先设置 GATEWAY_TOKEN 再暴露出去。'
+    '[gateway] GATEWAY_TOKEN 未设置——此时只放行来自本机(127.0.0.1/::1)的请求，' +
+      '经隧道/反代转发进来的远程请求会被拒绝(401)。' +
+      '要让手机远程访问，先设置 GATEWAY_TOKEN(建议 openssl rand -hex 32，纯十六进制，URL 与 nginx 缓存键都安全)。'
   );
 }
 
@@ -197,10 +211,99 @@ function getCookie(req, name) {
   for (const part of header.split(';')) {
     const idx = part.indexOf('=');
     if (idx === -1) continue;
-    if (part.slice(0, idx).trim() === name) return decodeURIComponent(part.slice(idx + 1).trim());
+    if (part.slice(0, idx).trim() === name) {
+      try {
+        return decodeURIComponent(part.slice(idx + 1).trim());
+      } catch {
+        // A malformed %-escape used to throw URIError out of authMethod and
+        // (in the upgrade handler, which has no try/catch) crash the whole
+        // gateway process on one bad cookie header.
+        return null;
+      }
+    }
   }
   return null;
 }
+
+// ── Auth hardening helpers ───────────────────────────────────────────
+// Constant-time compare. `===` on strings bails at the first differing
+// byte, so response time leaks how long a correct prefix is. Lengths are
+// compared first (timingSafeEqual throws on unequal lengths) — the token's
+// length isn't the secret, its content is.
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+const LOOPBACK_ADDRS = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+function isLoopback(addr) {
+  return !addr || LOOPBACK_ADDRS.has(addr);
+}
+
+// Effective client address. This process only listens on 127.0.0.1, so the
+// socket peer is *always* loopback — and in the documented deployment
+// (phone -> VPS nginx -> SSH -R tunnel -> here) it is loopback even for a
+// request from the other side of the internet, because the peer is just the
+// local end of the tunnel. The real address is only in the X-Real-IP /
+// X-Forwarded-For that nginx sets (deploy/vps/*.conf). Trusting those
+// headers is safe *only because* the socket peer is already loopback:
+// nothing but a local process (the tunnel, or the operator's own curl) can
+// be on the other end to forge them. If the peer is ever not loopback, the
+// headers are ignored and the peer address is used as-is.
+function clientAddr(req) {
+  const peer = req.socket.remoteAddress;
+  if (isLoopback(peer)) {
+    const real =
+      (req.headers['x-real-ip'] || '').trim() ||
+      (req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    if (real) return real;
+  }
+  return peer || '';
+}
+
+// Failed-auth throttle, keyed by effective client address. A 128-bit random
+// token can't be brute-forced anyway, but a weak/short one can, and every
+// bad guess otherwise costs the Mac a request for free. Generous enough that
+// a stale cookie plus a couple of fat-fingered retries never trips it.
+const AUTH_FAIL_WINDOW_MS = 5 * 60 * 1000;
+const AUTH_FAIL_MAX = 20;
+const AUTH_BLOCK_MS = 15 * 60 * 1000;
+const authFailures = new Map(); // addr -> { count, windowStart, blockedUntil }
+
+function isAuthBlocked(addr) {
+  const rec = authFailures.get(addr);
+  return !!rec && rec.blockedUntil > Date.now();
+}
+
+function recordAuthFailure(addr) {
+  const now = Date.now();
+  let rec = authFailures.get(addr);
+  if (!rec || (rec.blockedUntil <= now && now - rec.windowStart > AUTH_FAIL_WINDOW_MS)) {
+    rec = { count: 0, windowStart: now, blockedUntil: 0 };
+  }
+  rec.count += 1;
+  if (rec.count >= AUTH_FAIL_MAX && rec.blockedUntil <= now) {
+    rec.blockedUntil = now + AUTH_BLOCK_MS;
+    console.warn(`[gateway] 鉴权失败 ${rec.count} 次，暂时封禁 ${addr || '(未知地址)'} ${AUTH_BLOCK_MS / 60000} 分钟`);
+  }
+  authFailures.set(addr, rec);
+}
+
+function clearAuthFailures(addr) {
+  authFailures.delete(addr);
+}
+
+// Without this the map grows by one entry per distinct address that ever
+// mistyped once.
+setInterval(() => {
+  const now = Date.now();
+  for (const [addr, rec] of authFailures) {
+    if (rec.blockedUntil <= now && now - rec.windowStart > AUTH_FAIL_WINDOW_MS) authFailures.delete(addr);
+  }
+}, 10 * 60 * 1000).unref();
 
 // ── Whisper server: loaded on demand, released when idle ──────────────
 // Transcription used to spawn whisper-cli per request, which reloads the
@@ -434,13 +537,23 @@ async function handleStt(req, res) {
 // caller needs to react to (by setting the cookie) — header/cookie are
 // already durable across requests.
 function authMethod(req) {
-  if (!TOKEN) return 'none';
+  if (!TOKEN) {
+    // No shared secret: only a genuinely local request may pass. Anything
+    // that reached us through the tunnel/proxy (effective address not
+    // loopback) is refused rather than silently let in.
+    return isLoopback(clientAddr(req)) ? 'none' : null;
+  }
   const header = req.headers['authorization'] || '';
   const bearer = header.startsWith('Bearer ') ? header.slice(7) : null;
-  if (bearer === TOKEN) return 'header';
-  if (getCookie(req, COOKIE_NAME) === TOKEN) return 'cookie';
-  const url = new URL(req.url, 'http://localhost');
-  if (url.searchParams.get('token') === TOKEN) return 'query';
+  if (safeEqual(bearer, TOKEN)) return 'header';
+  if (safeEqual(getCookie(req, COOKIE_NAME), TOKEN)) return 'cookie';
+  let queryToken = null;
+  try {
+    queryToken = new URL(req.url, 'http://localhost').searchParams.get('token');
+  } catch {
+    // malformed request target — treat as no token
+  }
+  if (safeEqual(queryToken, TOKEN)) return 'query';
   return null;
 }
 
@@ -874,19 +987,50 @@ function serveManifest(req, res) {
 }
 
 const requestHandler = async (req, res) => {
+  const addr = clientAddr(req);
+  if (isAuthBlocked(addr)) {
+    res.writeHead(429, { 'content-type': 'text/plain; charset=utf-8', 'retry-after': String(AUTH_BLOCK_MS / 1000) });
+    res.end('too many failed attempts');
+    return;
+  }
   const auth = authMethod(req);
   if (auth === null) {
+    recordAuthFailure(addr);
     res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8' });
     res.end('unauthorized');
     return;
   }
+  if (auth !== 'none') clearAuthFailures(addr);
   if (auth === 'query') {
     // First visit with ?token=... — remember it so the page's own asset/API
     // requests (which won't carry the query string) stay authorized too.
+    // Secure only when the client really spoke https (TLS here, or nginx's
+    // X-Forwarded-Proto): a Secure cookie over plain http://127.0.0.1 would
+    // never be stored by Safari and break local testing.
+    const secure = TLS_OPTS || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
     res.setHeader(
       'Set-Cookie',
-      `${COOKIE_NAME}=${TOKEN}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`
+      `${COOKIE_NAME}=${TOKEN}; Path=/; HttpOnly; SameSite=Lax${secure}; Max-Age=${60 * 60 * 24 * 30}`
     );
+    // The cookie now carries auth, so the token in the URL is pure
+    // liability (history, share sheet, screenshots, any proxy that logs
+    // URLs). Bounce top-level page navigations to the same URL minus the
+    // token. Scripted requests (fetch/XHR) keep their real response — a
+    // redirect there would just be followed blind. Old bookmarks and
+    // home-screen icons still carry ?token= and still work: each launch
+    // re-authenticates on its first request and is redirected clean.
+  }
+  if (req.method === 'GET' && (req.headers.accept || '').includes('text/html')) {
+    const clean = new URL(req.url, 'http://localhost');
+    // Also covers a bookmark whose cookie is still valid (auth matched
+    // 'cookie' first, so the branch above never ran) or whose ?token= is
+    // stale after a rotation: either way the URL shouldn't keep it.
+    if (clean.searchParams.has('token')) {
+      clean.searchParams.delete('token');
+      res.writeHead(302, { location: clean.pathname + clean.search, 'cache-control': 'no-store' });
+      res.end();
+      return;
+    }
   }
 
   const pathname = new URL(req.url, 'http://localhost').pathname;
@@ -956,7 +1100,13 @@ server.on('upgrade', async (req, socket, head) => {
   // The page only opens a WebSocket after its initial HTML load already
   // set the cookie above, so upgrades just need to read it back — never
   // set-cookie here, a raw socket has no clean way to carry response headers.
+  const addr = clientAddr(req);
+  if (isAuthBlocked(addr)) {
+    socket.destroy();
+    return;
+  }
   if (authMethod(req) === null) {
+    recordAuthFailure(addr);
     socket.destroy();
     return;
   }
