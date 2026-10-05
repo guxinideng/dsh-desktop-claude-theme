@@ -1,12 +1,26 @@
-const { app, BrowserWindow, protocol, net, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, protocol, net, dialog, ipcMain, shell, session } = require('electron');
 const { spawn, execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const { pathToFileURL } = require('url');
 
-const DSH_PORT = 3080;
+// DSH_DESKTOP_PORT exists only so scripts/test-electron-security.mjs can run
+// the real app against a throwaway server; day to day it is always 3080.
+const DSH_PORT = Number(process.env.DSH_DESKTOP_PORT) || 3080;
 const DSH_URL = `http://127.0.0.1:${DSH_PORT}`;
+const DSH_ORIGIN = new URL(DSH_URL).origin;
+
+// True only for pages served by the dsh web server itself. Compared by parsed
+// origin rather than a string prefix, so "http://127.0.0.1:3080.evil.test/"
+// or "http://127.0.0.1:3080@evil.test/" cannot slip through.
+function isDshUrl(url) {
+  try {
+    return new URL(url).origin === DSH_ORIGIN;
+  } catch {
+    return false;
+  }
+}
 
 const THEME_CSS = fs.readFileSync(path.join(__dirname, 'theme.css'), 'utf8');
 // Only bundled in the Windows build's files list (see electron-builder.windows.yml)
@@ -49,8 +63,8 @@ ipcMain.handle('dsh-desktop:pick-files', async (event) => {
   // that can reach the exposed bridge could pop file dialogs and harvest
   // local paths — the Electron security checklist's "validate the sender of
   // all IPC messages".
-  const senderUrl = (event.senderFrame && event.senderFrame.url) || '';
-  if (!(senderUrl === DSH_URL || senderUrl.startsWith(DSH_URL + '/'))) return [];
+  const frame = event.senderFrame;
+  if (!frame || frame !== event.sender.mainFrame || !isDshUrl(frame.url)) return [];
   const win = BrowserWindow.fromWebContents(event.sender);
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
     properties: ['openFile', 'multiSelections'],
@@ -84,7 +98,7 @@ function registerFontProtocol() {
     if (!file.startsWith(path.join(__dirname, 'fonts') + path.sep)) {
       return new Response('forbidden', { status: 403 });
     }
-    return net.fetch(pathToFileURL(file).toString());
+    return net.fetch(pathToFileURL(file).toString()).catch(() => new Response('not found', { status: 404 }));
   });
 }
 
@@ -285,6 +299,64 @@ app.on('before-quit', () => {
   if (dshChild) dshChild.kill();
 });
 
+// ── Keeping the renderer on dsh ──────────────────────────────────────────
+//
+// A link in a chat message or tool output with target=_blank / window.open
+// used to get Electron's default (a second in-app window that also carried
+// the preload bridge), and a plain navigation would replace the dsh page —
+// after which the dom-ready hook would inject theme scripts into whatever
+// site that was. Web links go to the system browser instead, and only
+// http(s): handing file:, dshfont: or custom schemes to shell.openExternal
+// is how a rendered link turns into local code execution.
+function openExternalSafely(url) {
+  try {
+    const { protocol: scheme } = new URL(url);
+    if (scheme === 'http:' || scheme === 'https:') shell.openExternal(url);
+  } catch {
+    // unparseable URL — drop it
+  }
+}
+
+// Applied to every webContents (including the loading window) as it is created.
+app.on('web-contents-created', (_event, contents) => {
+  contents.setWindowOpenHandler(({ url }) => {
+    openExternalSafely(url);
+    return { action: 'deny' };
+  });
+  const keepOnDsh = (event, url) => {
+    if (isDshUrl(url)) return;
+    event.preventDefault();
+    openExternalSafely(url);
+  };
+  contents.on('will-navigate', keepOnDsh);
+  contents.on('will-redirect', keepOnDsh);
+  contents.on('will-attach-webview', (event) => event.preventDefault());
+});
+
+// Electron grants every permission request by default (camera, mic,
+// geolocation, notifications, ...). Keep that for dsh itself so nothing it
+// already does stops working, but refuse anything asked for by another origin.
+function registerSessionPolicy() {
+  const ses = session.defaultSession;
+  ses.setPermissionRequestHandler((_wc, _permission, callback, details) => {
+    callback(isDshUrl(details.requestingUrl));
+  });
+  ses.setPermissionCheckHandler((_wc, _permission, requestingOrigin) => isDshUrl(requestingOrigin));
+
+  // dsh sends no CSP. Its HTML relies on inline bootstrap scripts, so a real
+  // script-src cannot be enforced from outside; these two directives are the
+  // part that can: no plugins/embeds, and no <base> tag redirecting relative URLs.
+  ses.webRequest.onHeadersReceived((details, callback) => {
+    if (details.resourceType !== 'mainFrame' || !isDshUrl(details.url)) return callback({});
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': ["object-src 'none'; base-uri 'self'"],
+      },
+    });
+  });
+}
+
 // Inset traffic lights are a macOS concept (titleBarStyle/trafficLightPosition
 // are no-ops elsewhere) — other platforms get the normal native title bar,
 // and windows-overrides.css undoes theme.css's mac-only clearance hack to
@@ -301,38 +373,21 @@ function createWindow() {
       ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 16 } }
       : {}),
     webPreferences: {
+      // The renderer shows a web app we do not control, so none of Node or
+      // Electron may leak into it. contextIsolation / sandbox are already the
+      // defaults on this Electron; they are spelled out so a future edit has
+      // to remove them on purpose. The only bridge is preload.js.
       contextIsolation: true,
       sandbox: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      webviewTag: false,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
 
   win.loadURL(DSH_URL);
-
-  // Keep this window on dsh. A link in a chat message or tool output with
-  // target=_blank / window.open used to get Electron's default (a second
-  // in-app window), and a plain navigation would replace the dsh page — and
-  // the dom-ready hook below would then inject theme scripts into whatever
-  // site that was. Web links go to the system browser instead, and only
-  // http(s): handing file:, dshfont: or custom schemes to shell.openExternal
-  // is how a rendered link turns into local code execution.
-  const openExternalSafely = (url) => {
-    try {
-      const { protocol: scheme } = new URL(url);
-      if (scheme === 'http:' || scheme === 'https:') shell.openExternal(url);
-    } catch {
-      // unparseable URL — drop it
-    }
-  };
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalSafely(url);
-    return { action: 'deny' };
-  });
-  win.webContents.on('will-navigate', (event, url) => {
-    if (url === DSH_URL || url.startsWith(DSH_URL + '/')) return;
-    event.preventDefault();
-    openExternalSafely(url);
-  });
 
   const applyTheme = () => {
     win.webContents.insertCSS(THEME_CSS);
@@ -360,14 +415,17 @@ function createLoadingWindow() {
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 16 } }
       : {}),
-    webPreferences: { sandbox: true },
+    webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
   });
   win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(LOADING_HTML));
   return win;
 }
 
+let startupDone = false; // 'activate' must not open a window while the loading screen is still up
+
 app.whenReady().then(async () => {
   registerFontProtocol();
+  registerSessionPolicy();
   const loadingWin = createLoadingWindow();
   try {
     await ensureDsh(loadingWin);
@@ -378,9 +436,16 @@ app.whenReady().then(async () => {
     return;
   }
   createWindow();
+  startupDone = true;
   if (!loadingWin.isDestroyed()) loadingWin.close();
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+// macOS keeps the app alive after the last window is closed; clicking the
+// Dock icon must bring a window back (dsh is already up by then).
+app.on('activate', () => {
+  if (startupDone && BrowserWindow.getAllWindows().length === 0) createWindow();
 });
