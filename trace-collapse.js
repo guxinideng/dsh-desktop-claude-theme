@@ -20,7 +20,11 @@
 
   function markQuietRows() {
     document.querySelectorAll('[data-disclosure-row="true"]').forEach(function (row) {
-      var titleEl = row.querySelector('[class*="_title_9cl6j_"]');
+      // Match the CSS-module title by its `_title_` stem, not the full hashed
+      // name: the hash changed between dsh 0.1.0-rc.8 (_title_9cl6j_) and
+      // 0.2.0-rc.2 (_title_jhda5_), and a stale hash silently stops the
+      // dimming. The row's own title is the first `_title_` inside it.
+      var titleEl = row.querySelector('[class*="_title_"]');
       var label = titleEl ? titleEl.textContent.trim() : '';
       if (QUIET_TITLES.has(label)) {
         row.classList.add('ds-trace-quiet');

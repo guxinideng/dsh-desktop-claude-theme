@@ -14,11 +14,13 @@
   // stable-looking wrappers around it span the full window width — styling
   // those drew a box across the whole composer area instead of the input.
   function tagComposerCard() {
-    var textarea = document.querySelector(
-      'textarea[placeholder*="发消息"], textarea[placeholder*="描述你想"]'
+    // dsh 0.1.x renders the composer input as a <textarea>; 0.2.x replaced it
+    // with a contenteditable editor marked data-composer-input.
+    var input = document.querySelector(
+      'textarea[placeholder*="发消息"], textarea[placeholder*="描述你想"], [data-composer-input]'
     );
-    if (!textarea) return;
-    var card = textarea.closest('[class*="_card"]');
+    if (!input) return;
+    var card = input.closest('[class*="_card"]');
     if (card) card.classList.add('ds-composer-card');
   }
 

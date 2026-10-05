@@ -11,8 +11,9 @@
 //     (eval / loadURL / capture / status / quit).
 //
 // Env: HARNESS_CTRL (http://127.0.0.1:<port>), HARNESS_USER_DATA (dir),
-//      DSH_DESKTOP_PORT (read by main.js).
-const { app, shell, dialog, BrowserWindow } = require('electron');
+//      DSH_DESKTOP_PORT (read by main.js), HARNESS_CLIPBOARD (optional text
+//      returned by clipboard.readText).
+const { app, shell, dialog, clipboard, session, BrowserWindow } = require('electron');
 const fs = require('fs');
 
 const CTRL = process.env.HARNESS_CTRL;
@@ -34,6 +35,15 @@ dialog.showOpenDialog = async () => {
   post({ type: 'dialog' });
   return { canceled: false, filePaths: ['/tmp/dsh harness/picked file.txt'] };
 };
+// Login-token prompt (see askForLaunchUrl in main.js): never show the real
+// dialog, and never touch the real clipboard — the test supplies the text.
+let messageBoxes = 0;
+dialog.showMessageBox = async () => {
+  post({ type: 'messageBox' });
+  // answer "从剪贴板读取" twice, then "退出" so a bad clipboard cannot loop forever
+  return { response: ++messageBoxes > 2 ? 1 : 0 };
+};
+if (process.env.HARNESS_CLIPBOARD) clipboard.readText = () => process.env.HARNESS_CLIPBOARD;
 app.on('browser-window-created', (_e, win) => win.setOpacity(0));
 
 require('../main.js');
@@ -64,7 +74,8 @@ async function run(cmd) {
       return true;
     }
     case 'quit':
-      setTimeout(() => app.exit(0), 50);
+      // flush first so a later launch on the same userData sees the login cookie
+      session.defaultSession.cookies.flushStore().finally(() => app.exit(0));
       return true;
     default:
       throw new Error('unknown command ' + cmd.cmd);

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, protocol, net, dialog, ipcMain, shell, session } = require('electron');
+const { app, BrowserWindow, protocol, net, dialog, ipcMain, shell, session, clipboard } = require('electron');
 const { spawn, execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
@@ -115,6 +115,76 @@ function registerFontProtocol() {
 // blank window pointed at a server that doesn't exist.
 
 let dshChild = null; // only set if THIS process spawned dsh — only then do we kill it on quit
+
+// ── dsh 0.2.x: browser login token ───────────────────────────────────────
+//
+// From 0.2.0 `dsh web` answers 401 to every page request until the browser
+// opens the URL it prints at startup (http://127.0.0.1:<port>/?token=...).
+// That one visit is exchanged for a signed cookie (kept in this app's own
+// persistent session, so later launches need nothing) and redirected to the
+// clean address. 0.1.x has no such thing and prints the bare URL, so
+// everything below is a no-op there. The token is only ever held in this
+// main process and never logged.
+let dshLaunchUrl = DSH_URL; // what the main window loads first
+
+function redactToken(text) {
+  return String(text).replace(/token=[^\s&]+/g, 'token=…');
+}
+
+// Picks a token URL for OUR dsh origin out of arbitrary text (dsh's startup
+// output, or what the user pasted). Anything pointing elsewhere is ignored.
+function adoptLaunchUrl(text) {
+  const m = /https?:\/\/[^\s]+[?&]token=[^\s&]+/.exec(String(text).replace(/\x1b\[[0-9;]*m/g, ''));
+  if (!m) return false;
+  try {
+    const url = new URL(m[0]);
+    if (url.origin !== DSH_ORIGIN) return false;
+    dshLaunchUrl = url.href;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// net.fetch goes through the default session, i.e. sends the stored cookie —
+// exactly what the window itself will do.
+async function dshNeedsLogin() {
+  try {
+    const res = await net.fetch(DSH_URL, { redirect: 'manual' });
+    return res.status === 401;
+  } catch {
+    return false;
+  }
+}
+
+// dsh was started by someone else (a terminal) and this app has no cookie for
+// it yet, so the token has to come from the user: copy the printed line, click.
+async function askForLaunchUrl(loadingWin) {
+  for (;;) {
+    const { response } = await dialog.showMessageBox(loadingWin, {
+      type: 'info',
+      message: 'DeepSeek Harness 需要登录令牌',
+      detail:
+        '这个 dsh 是 0.2 之后的版本，打开页面需要它启动时打印的、带 ?token= 的地址。\n\n' +
+        '请到运行 dsh web 的终端里复制那一整行地址，然后点“从剪贴板读取”。只需要一次，之后会记住。',
+      buttons: ['从剪贴板读取', '退出'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response === 1) {
+      const err = new Error('cancelled');
+      err.silent = true;
+      throw err;
+    }
+    if (adoptLaunchUrl(clipboard.readText())) return;
+  }
+}
+
+// Child we spawned: its startup line carries the token; give it a moment.
+async function waitForSpawnedLaunchUrl() {
+  if (!(await dshNeedsLogin())) return;
+  for (let i = 0; i < 50 && dshLaunchUrl === DSH_URL; i++) await new Promise((r) => setTimeout(r, 100));
+}
 
 function pingDsh(timeoutMs) {
   return new Promise((resolve) => {
@@ -252,8 +322,15 @@ function spawnVendoredDsh(binPath) {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     stdio: 'pipe',
   });
-  child.stdout.on('data', (d) => process.stdout.write(`[dsh] ${d}`));
-  child.stderr.on('data', (d) => process.stderr.write(`[dsh] ${d}`));
+  let startupOutput = '';
+  child.stdout.on('data', (d) => {
+    process.stdout.write(`[dsh] ${redactToken(d)}`);
+    if (dshLaunchUrl === DSH_URL) {
+      startupOutput = (startupOutput + d).slice(-4000);
+      adoptLaunchUrl(startupOutput);
+    }
+  });
+  child.stderr.on('data', (d) => process.stderr.write(`[dsh] ${redactToken(d)}`));
   child.on('exit', (code) => {
     if (code && code !== 0) console.error(`[dsh] exited with code ${code}`);
   });
@@ -261,7 +338,11 @@ function spawnVendoredDsh(binPath) {
 }
 
 async function ensureDsh(loadingWin) {
-  if (await pingDsh(800)) return; // already running externally — nothing to do, nothing to clean up
+  if (await pingDsh(800)) {
+    // already running externally — nothing to clean up, but a 0.2.x dsh may still want a login
+    if (await dshNeedsLogin()) await askForLaunchUrl(loadingWin);
+    return;
+  }
 
   if (process.platform === 'win32') {
     const destDir = path.join(app.getPath('userData'), 'dsh-latest');
@@ -278,6 +359,7 @@ async function ensureDsh(loadingWin) {
     setLoadingStatus(loadingWin, '正在启动…');
     dshChild = spawnVendoredDsh(bin);
     await waitForDsh(60000); // more generous than the mac timeout — first boot of a freshly npm-installed copy, not a pre-vetted vendored one
+    await waitForSpawnedLaunchUrl();
     return;
   }
 
@@ -293,6 +375,7 @@ async function ensureDsh(loadingWin) {
   setLoadingStatus(loadingWin, '正在启动…');
   dshChild = spawnVendoredDsh(bin);
   await waitForDsh(30000);
+  await waitForSpawnedLaunchUrl();
 }
 
 app.on('before-quit', () => {
@@ -387,7 +470,7 @@ function createWindow() {
     },
   });
 
-  win.loadURL(DSH_URL);
+  win.loadURL(dshLaunchUrl);
 
   const applyTheme = () => {
     win.webContents.insertCSS(THEME_CSS);
@@ -430,7 +513,7 @@ app.whenReady().then(async () => {
   try {
     await ensureDsh(loadingWin);
   } catch (err) {
-    dialog.showErrorBox('无法启动 DeepSeek Harness', err.message);
+    if (!err.silent) dialog.showErrorBox('无法启动 DeepSeek Harness', err.message);
     if (!loadingWin.isDestroyed()) loadingWin.close();
     app.quit();
     return;

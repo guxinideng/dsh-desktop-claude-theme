@@ -13,10 +13,9 @@
 
 import http from 'node:http';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { launchHarness } from './electron-test-driver.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PAGE_PORT = 3281; // 假 dsh
@@ -96,14 +95,9 @@ const P2 = `
 
 const P3 = `<script>parent.postMessage({ frameBridge: typeof window.dshDesktop }, '*');</script>`;
 
-// ── 假 dsh + 控制通道 ──
-const events = []; // harness 上报:openExternal / dialog
+// ── 假 dsh 页面服务 ──
 const results = {};
 const waiters = [];
-const cmdQueue = [];
-const cmdWaiters = [];
-let cmdSeq = 0;
-const pending = new Map();
 
 function readBody(req) {
   return new Promise((resolve) => {
@@ -118,26 +112,6 @@ function page(script) {
 
 const server = http.createServer(async (req, res) => {
   const pathname = req.url.split('?')[0];
-  if (pathname === '/__cmd') {
-    const next = cmdQueue.shift();
-    if (next) return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(next));
-    const waiter = (c) => {
-      clearTimeout(t);
-      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(c));
-    };
-    const t = setTimeout(() => {
-      cmdWaiters.splice(cmdWaiters.indexOf(waiter), 1);
-      res.writeHead(204).end();
-    }, 1500);
-    cmdWaiters.push(waiter);
-    return;
-  }
-  if (pathname === '/__main') {
-    const msg = JSON.parse(await readBody(req));
-    if (msg.type === 'result') pending.get(msg.id)?.(msg);
-    else events.push(msg);
-    return res.writeHead(204).end();
-  }
   if (pathname === '/__result') {
     const { phase, out } = JSON.parse(await readBody(req));
     results[phase] = out;
@@ -151,19 +125,6 @@ const server = http.createServer(async (req, res) => {
 });
 await new Promise((r) => server.listen(PAGE_PORT, '127.0.0.1', r));
 
-function send(cmd) {
-  const id = ++cmdSeq;
-  const full = { ...cmd, id };
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('命令超时: ' + cmd.cmd)), 20000);
-    pending.set(id, (m) => {
-      clearTimeout(t);
-      m.error ? reject(new Error(m.error)) : resolve(m.value);
-    });
-    const w = cmdWaiters.shift();
-    w ? w(full) : cmdQueue.push(full);
-  });
-}
 const waitFor = (phase, ms = 20000) =>
   new Promise((resolve, reject) => {
     if (results[phase]) return resolve();
@@ -175,23 +136,11 @@ const waitFor = (phase, ms = 20000) =>
   });
 
 // ── 启动真实 main.js ──
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-electron-test-'));
-const electronBin = (await import('node:module')).createRequire(import.meta.url)(path.join(ROOT, 'node_modules/electron'));
-const child = spawn(electronBin, [path.join(ROOT, 'scripts/electron-test-harness.cjs')], {
-  env: {
-    ...process.env,
-    DSH_DESKTOP_PORT: String(PAGE_PORT),
-    HARNESS_CTRL: `http://127.0.0.1:${PAGE_PORT}`,
-    HARNESS_USER_DATA: userData,
-  },
-  stdio: 'pipe',
-});
-let log = '';
-child.stdout.on('data', (d) => (log += d));
-child.stderr.on('data', (d) => (log += d));
-child.on('exit', (code) => {
+const h = await launchHarness({ dshPort: PAGE_PORT });
+const { events, send } = h;
+h.exited.then((code) => {
   if (!finished) {
-    console.error('Electron 提前退出,代码', code, '\n', log.slice(-1500));
+    console.error('Electron 提前退出,代码', code, '\n', h.getLog().slice(-1500));
     process.exit(1);
   }
 });
@@ -227,15 +176,11 @@ try {
   check('非 dsh 来源调用 pickFiles → 空数组,且没有弹出对话框', r2.hasBridge && JSON.stringify(r2.picked) === '[]' && events.filter((e) => e.type === 'dialog').length === 1, JSON.stringify([r2.picked, events.filter((e) => e.type === 'dialog').length]));
   check('非 dsh 来源的权限请求被拒(Notification → denied)', r2.notification === 'denied', r2.notification);
 } catch (e) {
-  console.error('测试脚本自身出错:', e, '\n--- electron 输出 ---\n', log.slice(-1500));
+  console.error('测试脚本自身出错:', e, '\n--- electron 输出 ---\n', h.getLog().slice(-1500));
   failed++;
 } finally {
   finished = true;
-  send({ cmd: 'quit' }).catch(() => {}); // app.exit 不会回包,故意不 await
-  setTimeout(() => {
-    child.kill('SIGKILL');
-    fs.rmSync(userData, { recursive: true, force: true });
-    server.close();
-    process.exit(failed ? 1 : 0);
-  }, 500);
+  await h.stop();
+  server.close();
+  process.exit(failed ? 1 : 0);
 }
