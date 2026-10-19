@@ -15,6 +15,10 @@ files:
   - trace-translate.js
   - font-picker.js
   - file-picker.js
+  - archive-manager.js
+  - archived-page.js
+  - icons.js
+  - batch-select.js
   - approval-hotkey.js
   - preload.js
   - fonts/**/*

@@ -76,11 +76,6 @@ body {
   --dsw-alias-markdown-tag: rgb(240, 238, 228) !important;
   --dsw-alias-markdown-placeholder: rgb(240, 238, 228) !important;
 
-  --dsw-alias-scrollbar-bg-l1: rgba(0,0,0,.15) !important;
-  --dsw-alias-scrollbar-bg-l2: rgba(0,0,0,.25) !important;
-  --dsw-alias-scrollbar-hover-l1: rgba(0,0,0,.25) !important;
-  --dsw-alias-scrollbar-hover-l2: rgba(0,0,0,.35) !important;
-
   --dsw-alias-toast-bg: rgb(45, 40, 35) !important;
   --dsw-alias-tooltip-bg: rgb(45, 40, 35) !important;
 
@@ -178,11 +173,6 @@ body[data-ds-dark-theme] {
   --dsw-alias-markdown-tag: rgb(44, 42, 40) !important;
   --dsw-alias-markdown-placeholder: rgb(44, 42, 40) !important;
 
-  --dsw-alias-scrollbar-bg-l1: rgba(255, 255, 255, .15) !important;
-  --dsw-alias-scrollbar-bg-l2: rgba(255, 255, 255, .25) !important;
-  --dsw-alias-scrollbar-hover-l1: rgba(255, 255, 255, .25) !important;
-  --dsw-alias-scrollbar-hover-l2: rgba(255, 255, 255, .35) !important;
-
   --dsw-alias-toast-bg: rgb(50, 48, 46) !important;
   --dsw-alias-tooltip-bg: rgb(50, 48, 46) !important;
 
@@ -211,14 +201,19 @@ body[data-ds-dark-theme] {
 }
 
 /* Quiet, not hidden: pure trace/log rows (Think, Bash, tool calls, context
-   injection, todo updates) fade to 50% opacity so they don't compete with
-   actual prose, but stay fully present, still natively click-to-expand,
-   and snap back to full opacity on hover/focus. The .ds-trace-quiet class
-   is applied by trace-collapse.js, which also excludes interactive rows
-   like 提问 (questions awaiting a reply) from this treatment. */
+   injection, todo updates) fade to 80% opacity so they don't compete with
+   actual prose but stay readable (50% was too faint on the cream
+   background), still natively click-to-expand, and snap back to full
+   opacity on hover/focus. The .ds-trace-quiet class is applied by
+   trace-collapse.js, which also excludes interactive rows like 提问
+   (questions awaiting a reply) from this treatment. Failed tool calls
+   (.ds-trace-error) are never faded. */
 .ds-trace-quiet {
-  opacity: 0.5;
+  opacity: 0.8;
   transition: opacity 0.15s ease;
+}
+.ds-trace-quiet.ds-trace-error {
+  opacity: 1;
 }
 
 /* Widen the reading column — the default 748px cap left too much empty
@@ -237,6 +232,54 @@ body[data-ds-dark-theme] {
 .ds-trace-quiet:hover,
 .ds-trace-quiet:focus-within {
   opacity: 1;
+}
+
+/* Compact trace rows. Measured in the Electron build: DSH fixes each row at
+   height:24px (._row_*), its title/summary/source spans and file-link line
+   at a 24px line box, and the flow-item wrapper adds a 16px column gap. A
+   collapsed row was therefore 24px + 16px = 40-48px pitch. Here a collapsed
+   row becomes a 20px line box and sibling trace rows sit 10px apart
+   (about 30px centre to centre). Failed tool calls (.ds-trace-error) and
+   expanded rows (aria-expanded="true") keep their native size. */
+.ds-trace-quiet:not(.ds-trace-error):not([aria-expanded="true"]),
+.ds-trace-quiet:not(.ds-trace-error):not([aria-expanded="true"]) [class*="_row"],
+.ds-trace-quiet:not(.ds-trace-error):not([aria-expanded="true"]) [class*="_card"],
+.ds-trace-quiet:not(.ds-trace-error):not([aria-expanded="true"]) [class*="_root"],
+.ds-trace-quiet:not(.ds-trace-error):not([aria-expanded="true"]) [class*="fileLink"] {
+  height: auto !important;
+}
+.ds-trace-quiet:not(.ds-trace-error):not([aria-expanded="true"]),
+.ds-trace-quiet:not(.ds-trace-error):not([aria-expanded="true"]) [class*="_row"],
+.ds-trace-quiet:not(.ds-trace-error):not([aria-expanded="true"]) [class*="_card"] {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+.ds-trace-quiet:not(.ds-trace-error):not([aria-expanded="true"]) [class*="_title"],
+.ds-trace-quiet:not(.ds-trace-error):not([aria-expanded="true"]) [class*="_summary"],
+.ds-trace-quiet:not(.ds-trace-error):not([aria-expanded="true"]) [class*="_source"],
+.ds-trace-quiet:not(.ds-trace-error):not([aria-expanded="true"]) [class*="fileLink"] {
+  line-height: 20px !important;
+}
+/* Pull consecutive collapsed trace rows 6px closer (16px gap becomes 10px).
+   Rows next to an error or an expanded row keep the normal gap. */
+[class*="flowItem"]:has(.ds-trace-quiet:not(.ds-trace-error)):not(:has(.ds-trace-error)):not(:has([aria-expanded="true"])):has(+ [class*="flowItem"] .ds-trace-quiet:not(.ds-trace-error)) {
+  margin-bottom: -6px;
+}
+
+/* Quiet rows: grey icons, links drawn like plain text in the row colour. */
+.ds-trace-quiet:not(.ds-trace-error) svg {
+  color: #8c8c8c !important;
+}
+.ds-trace-quiet:not(.ds-trace-error) a,
+.ds-trace-quiet:not(.ds-trace-error) a:visited,
+.ds-trace-quiet:not(.ds-trace-error) a:hover {
+  color: inherit !important;
+  text-decoration: none !important;
+}
+
+/* Non-last permission rows in a run of adjacent permission rows. */
+[data-ds-permission-dup="1"] {
+  display: none !important;
 }
 
 /* ── UI polish pass ──────────────────────────────────────────────────── */
@@ -260,6 +303,21 @@ select:focus-visible,
 [role="menuitem"]:focus-visible {
   outline: 2px solid rgba(204, 120, 92, 0.65);
   outline-offset: 2px;
+}
+
+/* Sidebar search input: no focus ring of its own. The capsule around it
+   shows focus instead, so keyboard users still see where they are. */
+[class*="qDHVXG_searchInput"]:focus,
+[class*="qDHVXG_searchInput"]:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border-color: transparent !important;
+}
+[class~="qDHVXG_search"] {
+  transition: border-color 0.15s ease;
+}
+[class~="qDHVXG_search"]:focus-within {
+  border-color: var(--dsw-alias-border-l3) !important;
 }
 
 /* Buttons and session rows ease between states instead of snapping. */
@@ -462,20 +520,140 @@ body:not([data-ds-dark-theme]) [class*="sidebarCol"] {
   display: none !important;
 }
 
-/* Top-bar session log button: icon only. The text span is hidden, and
-   label-tweaks.js sets the title. Spans that wrap an svg are kept, so the
-   icon survives. */
-[class*="nL4_yW_sessionLogButton"] span:not(:has(svg)) {
+/* Top-bar session log button: hidden. It is still in the DOM, and
+   label-tweaks.js calls click() on it from the session row menu's
+   "下载会话" item. click() works on display:none elements. */
+[class*="nL4_yW_sessionLogButton"] {
   display: none !important;
 }
 
-/* Sidebar workspace row: the view-options and add icons stay hidden until
-   the row is hovered or focused. The search icon stays visible. */
-[class*="qDHVXG_iconButton"]:not([class*="qDHVXG_searchButton"]) {
+/* Sidebar header row: search, view-options and add icons are all hidden until
+   the row is hovered or focused. The search button has its own class
+   (searchButton, not iconButton) and lives in a different wrapper from the
+   other two, so the whole header (sectionHeader) drives the reveal. */
+[class*="qDHVXG_iconButton"],
+[class*="qDHVXG_searchButton"] {
   opacity: 0;
   transition: opacity 0.15s ease;
 }
-*:has(> [class*="qDHVXG_iconButton"]:not([class*="qDHVXG_searchButton"])):is(:hover, :focus-within)
-  > [class*="qDHVXG_iconButton"]:not([class*="qDHVXG_searchButton"]) {
+[class*="qDHVXG_sectionHeader"]:is(:hover, :focus-within) [class*="qDHVXG_iconButton"],
+[class*="qDHVXG_sectionHeader"]:is(:hover, :focus-within) [class*="qDHVXG_searchButton"],
+/* Keep the row visible while the search input has text, even after blur. */
+[class*="qDHVXG_sectionHeader"]:has([class*="qDHVXG_searchInput"]:not(:placeholder-shown))
+  [class*="qDHVXG_iconButton"],
+[class*="qDHVXG_sectionHeader"]:has([class*="qDHVXG_searchInput"]:not(:placeholder-shown))
+  [class*="qDHVXG_searchButton"] {
   opacity: 1;
+}
+
+/* Collapsed rail (container has qDHVXG_rail): all three icons stay visible.
+   Specificity is above the hidden rule, so no !important. */
+[class*="qDHVXG_rail"] [class*="qDHVXG_iconButton"],
+[class*="qDHVXG_rail"] [class*="qDHVXG_searchButton"] {
+  opacity: 1;
+}
+
+/* Sidebar session overflow button ("展开其余 N 个会话"): hidden. label-tweaks.js
+   clicks it once so the full session list shows, and nothing is left blank. */
+[class*="qDHVXG_sessionOverflowButton"] {
+  display: none !important;
+}
+
+/* Sidebar session list: fills the sidebar height and scrolls inside itself.
+   The flex chain runs from the tree body down to the list. The list itself
+   is matched without the listArea substring, so the chain container is not
+   made a scroller. Its scrollbar is hidden by the global rule below. */
+[class*="qDHVXG_treeBody"],
+[class*="qDHVXG_listArea"] {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+div[class*="qDHVXG_list"]:not([class*="qDHVXG_listArea"]) {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Session timestamp: hidden. On hover the row actions button (⋯) still
+   takes its place, since it is a separate flex item with its own display rule. */
+[class*="YDXeBa_sessionRow"] > [class*="YDXeBa_time"] {
+  display: none !important;
+}
+
+/* Flat sidebar ("单列表"): body[data-ds-flat] is set by label-tweaks.js when
+   there are session rows and no workspace rows. Only this mode is changed. */
+/* Section label reads "最近" (Recent): the dsh text is hidden, ::before draws the new one. */
+body[data-ds-flat="1"] [class*="qDHVXG_sectionLabel"] {
+  font-size: 0;
+}
+body[data-ds-flat="1"] [class*="qDHVXG_sectionLabel"]::before {
+  content: "最近";
+  font-size: 13px;
+  line-height: 20px;
+  color: rgb(129, 133, 140);
+}
+/* Rows: 34px pitch, title aligned with the label. Flat rows have no slot
+   element, so only the row padding moves. An in-progress dot (WithStatus
+   variant) would keep its own position. */
+body[data-ds-flat="1"] [class*="YDXeBa_sessionRow"] {
+  height: 34px;
+  min-height: 34px;
+  padding-left: 4px;
+}
+
+/* Hide all scrollbars. Scrolling still works with wheel and trackpad. */
+* {
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Workspace group headers stay at the top while that group's sessions
+   scroll, so the list still shows which workspace it is in. Background
+   matches the sidebar layer. */
+[class*="qDHVXG_sectionHeader"] {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+/* Composer tools bar: hide the hover tooltip on the + button only.
+   Tooltips elsewhere are unchanged. */
+[class*="uV2eYG_tools"] [role="tooltip"] {
+  display: none !important;
+}
+
+/* Conversation header: the thinking chip (inside headerActions) moves to the
+   far right of the title row, vertically centred. titleCluster is
+   display:contents, so its breadcrumbs and headerActions become direct flex
+   items of the row. Only order and margins change; no DOM nodes move. */
+.wSkVaW_titleRow {
+  align-items: center;
+}
+.wSkVaW_titleCluster {
+  display: contents;
+}
+.wSkVaW_crumbs {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+[class*="wSkVaW_crumbSeg"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wSkVaW_headerActions {
+  order: 1;
+  margin-left: auto;
+  flex-shrink: 0;
+  align-items: center;
 }

@@ -1,12 +1,16 @@
 const { app, BrowserWindow, protocol, net, dialog, ipcMain, shell } = require('electron');
 const { spawn, execFile } = require('child_process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const http = require('http');
+const crypto = require('crypto');
 const { pathToFileURL } = require('url');
+const { listArchivedIds, unarchive, deleteSessions, isPortListening } = require('./archive-manager');
 
 const DSH_PORT = 3080;
 const DSH_URL = `http://127.0.0.1:${DSH_PORT}`;
+const DSH_HOME = path.join(os.homedir(), '.dsh');
 
 const THEME_CSS = fs.readFileSync(path.join(__dirname, 'theme.css'), 'utf8');
 // Only bundled in the Windows build's files list (see electron-builder.windows.yml)
@@ -18,8 +22,18 @@ const LABEL_TWEAKS_JS = fs.readFileSync(path.join(__dirname, 'label-tweaks.js'),
 const TRACE_COLLAPSE_JS = fs.readFileSync(path.join(__dirname, 'trace-collapse.js'), 'utf8');
 const TRACE_TRANSLATE_JS = fs.readFileSync(path.join(__dirname, 'trace-translate.js'), 'utf8');
 const FONT_PICKER_JS = fs.readFileSync(path.join(__dirname, 'font-picker.js'), 'utf8');
+const ICONS_JS = fs.readFileSync(path.join(__dirname, 'icons.js'), 'utf8');
+const BATCH_SELECT_JS = fs.readFileSync(path.join(__dirname, 'batch-select.js'), 'utf8');
 const FILE_PICKER_JS = fs.readFileSync(path.join(__dirname, 'file-picker.js'), 'utf8');
 const APPROVAL_HOTKEY_JS = fs.readFileSync(path.join(__dirname, 'approval-hotkey.js'), 'utf8');
+// Optional: the archived-sessions page. A build or checkout without the file
+// still starts; the page just isn't injected.
+let ARCHIVED_PAGE_JS = '';
+try {
+  ARCHIVED_PAGE_JS = fs.readFileSync(path.join(__dirname, 'archived-page.js'), 'utf8');
+} catch (err) {
+  console.warn(`[archived-page] 未注入 archived-page.js：${err.code || err.message}`);
+}
 
 // Shown immediately on launch, before dsh is confirmed reachable — spawning
 // the Windows build's own copy (see installLatestDsh below) means a real
@@ -113,6 +127,9 @@ function registerFontProtocol() {
 // blank window pointed at a server that doesn't exist.
 
 let dshChild = null; // only set if THIS process spawned dsh — only then do we kill it on quit
+let dshBinPath = null; // the dsh bin we spawned, kept so the archive page can restart the same copy
+let mainWindow = null; // the dsh window; the archive page's dialog and reload target
+let quitting = false; // set in before-quit so a restart can't respawn dsh after the app is gone
 
 function pingDsh(timeoutMs) {
   return new Promise((resolve) => {
@@ -253,6 +270,9 @@ function spawnVendoredDsh(binPath) {
   child.stdout.on('data', (d) => process.stdout.write(`[dsh] ${d}`));
   child.stderr.on('data', (d) => process.stderr.write(`[dsh] ${d}`));
   child.on('exit', (code) => {
+    // Only forget the handle if it is still this child; a restart may already
+    // have stored its replacement.
+    if (dshChild === child) dshChild = null;
     if (code && code !== 0) console.error(`[dsh] exited with code ${code}`);
   });
   return child;
@@ -274,6 +294,7 @@ async function ensureDsh(loadingWin) {
       if (!bin) throw new Error('DeepSeek Harness 下载完成，但没有找到可执行文件，请重试或反馈这个问题。');
     }
     setLoadingStatus(loadingWin, '正在启动…');
+    dshBinPath = bin;
     dshChild = spawnVendoredDsh(bin);
     await waitForDsh(60000); // more generous than the mac timeout — first boot of a freshly npm-installed copy, not a pre-vetted vendored one
     return;
@@ -289,12 +310,284 @@ async function ensureDsh(loadingWin) {
     );
   }
   setLoadingStatus(loadingWin, '正在启动…');
+  dshBinPath = bin;
   dshChild = spawnVendoredDsh(bin);
   await waitForDsh(30000);
 }
 
 app.on('before-quit', () => {
+  quitting = true;
   if (dshChild) dshChild.kill();
+});
+
+// ── Archived sessions: list / restore / delete ──────────────────────────
+//
+// The archive list lives in ~/.dsh/storages/workspace.json, which dsh itself
+// writes, so restore/delete only run while dsh is stopped. We only ever stop
+// and restart a copy this app spawned (dshChild); an externally run dsh is
+// view-only here. Nothing is force-killed: if dsh ignores SIGTERM we give up
+// and leave the data alone.
+
+const CANNOT_MANAGE_REASON = '当前 dsh 不是由本应用启动的，无法在这里恢复或删除（只能查看）';
+const ARCHIVE_STOP_TIMEOUT_MS = 10000;
+const ARCHIVE_START_TIMEOUT_MS = 30000;
+const SESSION_LIST_TIMEOUT_MS = 5000;
+const ARCHIVE_MAX_IDS = 200;
+const ARCHIVE_DIALOG_MAX_TITLES = 8;
+const ARCHIVE_TITLE_MAX_CHARS = 60;
+
+let archiveBusy = false; // synchronous check-and-set mutex around apply
+let dshRestarting = null; // in-flight restart, so two triggers can't spawn two dsh
+
+// Same sender check as pick-files / pick-folders above.
+function isDshSender(event) {
+  const senderUrl = (event.senderFrame && event.senderFrame.url) || '';
+  return senderUrl === DSH_URL || senderUrl.startsWith(DSH_URL + '/');
+}
+
+function ownsLiveDsh() {
+  return !!dshChild && dshChild.exitCode === null && dshChild.signalCode === null;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function childHasExited(child) {
+  return child.exitCode !== null || child.signalCode !== null;
+}
+
+// Read-only titles lookup. The only RPC this code ever sends is session.list
+// (no pagination: the host's cursor is unimplemented and the response has no
+// next cursor). Any failure resolves to an empty map, so the list still shows
+// up, just without titles. Titles come from projections.values.title, which
+// is a string or null; cold sessions without a projection snapshot get null.
+function fetchSessionTitles() {
+  return new Promise((resolve) => {
+    const rpcId = crypto.randomUUID();
+    const body = JSON.stringify({ type: 'client-request', rpcId, method: 'session.list', payload: {} });
+    let settled = false;
+    let timer = null;
+    let req = null;
+    const finish = (titles) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (req) req.destroy();
+      resolve(titles);
+    };
+    req = http.request(
+      {
+        host: '127.0.0.1',
+        port: DSH_PORT,
+        path: '/api/session.list',
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => chunks.push(chunk));
+        res.on('error', () => finish(new Map()));
+        res.on('end', () => {
+          try {
+            if (res.statusCode !== 200) return finish(new Map());
+            const msg = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+            if (msg.rpcId !== rpcId || !msg.result || msg.result.ok !== true) return finish(new Map());
+            const titles = new Map();
+            for (const item of msg.result.value.items || []) {
+              const title = item && item.projections && item.projections.values && item.projections.values.title;
+              if (item && typeof item.sessionId === 'string') {
+                titles.set(item.sessionId, typeof title === 'string' ? title : null);
+              }
+            }
+            finish(titles);
+          } catch {
+            finish(new Map());
+          }
+        });
+      }
+    );
+    req.on('error', () => finish(new Map()));
+    timer = setTimeout(() => finish(new Map()), SESSION_LIST_TIMEOUT_MS);
+    req.end(body);
+  });
+}
+
+// Validate renderer-supplied ids before they reach the native dialog or the
+// archive code. Each id must be one the archive list currently holds.
+function checkArchiveIds(ids, archivedIds) {
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > ARCHIVE_MAX_IDS) {
+    return { error: `要处理的会话数量必须在 1 到 ${ARCHIVE_MAX_IDS} 之间` };
+  }
+  const archived = new Set(archivedIds);
+  const out = new Set();
+  for (const id of ids) {
+    if (typeof id !== 'string' || id === '' || id === '.' || id === '..' || /[\/\\\0]/.test(id)) {
+      return { error: '会话 ID 格式不正确' };
+    }
+    if (!archived.has(id)) return { error: '所选会话已不在归档列表中，请刷新后重试' };
+    out.add(id);
+  }
+  return { ids: [...out] };
+}
+
+function oneLine(text) {
+  const flat = String(text).replace(/\s+/g, ' ').trim();
+  return Array.from(flat).slice(0, ARCHIVE_TITLE_MAX_CHARS).join('');
+}
+
+// Native confirm dialog: the page cannot fake or bypass it. Button 0 (取消)
+// is both the default and the cancel id, so Enter or Esc never confirms.
+async function confirmArchiveAction(action, ids, titles) {
+  const restore = action === 'restore';
+  const verb = restore ? '恢复' : '删除';
+  const lines = ids.slice(0, ARCHIVE_DIALOG_MAX_TITLES).map((id) => {
+    const title = titles.get(id);
+    return `· ${title ? oneLine(title) : '（无标题）'}`;
+  });
+  if (ids.length > ARCHIVE_DIALOG_MAX_TITLES) lines.push(`等共 ${ids.length} 个`);
+  const notes = ['dsh 会短暂重启一次，正在运行的会话会被中断。'];
+  if (!restore) {
+    notes.push('会话文件会被移动到 ~/.dsh/trash/<时间>/，不会立即彻底删除，必要时可手动移回。');
+  }
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  const { response } = await dialog.showMessageBox(win, {
+    type: restore ? 'question' : 'warning',
+    buttons: ['取消', verb],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+    message: `将${verb} ${ids.length} 个会话：\n${lines.join('\n')}`,
+    detail: notes.join('\n'),
+  });
+  return response === 1;
+}
+
+// Stop the dsh child we own and wait until it has exited AND its port is
+// closed (a graceful shutdown can still flush workspace.json after the
+// listener closes). No SIGKILL. On timeout, dsh is still running, so the
+// data is untouched; a one-time exit listener brings it back if it dies later.
+async function stopOwnedDsh() {
+  const child = dshChild;
+  if (!child || !ownsLiveDsh()) throw new Error('dsh 已不在本应用的控制下，未做任何修改');
+  child.kill('SIGTERM');
+  const deadline = Date.now() + ARCHIVE_STOP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if (childHasExited(child) && !(await isPortListening(DSH_PORT, 500))) return;
+    await sleep(300);
+  }
+  const watchForLateExit = () => {
+    child.once('exit', () => {
+      if (quitting) return;
+      restartDshIfDown().catch((err) => console.error(`[archive] 重新启动 dsh 失败：${err.message}`));
+    });
+  };
+  if (childHasExited(child)) {
+    restartDshIfDown().catch((err) => console.error(`[archive] 重新启动 dsh 失败：${err.message}`));
+  } else {
+    watchForLateExit();
+  }
+  throw new Error('dsh 没有在 10 秒内停止，已放弃本次操作，数据未做修改');
+}
+
+// Bring back the dsh copy we spawned, if nothing is serving the port and we
+// don't still hold a live child. Reuses the saved bin path and spawn logic.
+function restartDshIfDown() {
+  if (dshRestarting) return dshRestarting;
+  dshRestarting = (async () => {
+    try {
+      if (quitting) throw new Error('应用正在退出');
+      if (ownsLiveDsh() || (await isPortListening(DSH_PORT, 500))) return;
+      if (!dshBinPath) throw new Error('找不到 dsh 的启动文件，请手动运行 dsh web');
+      dshChild = spawnVendoredDsh(dshBinPath);
+      await waitForDsh(ARCHIVE_START_TIMEOUT_MS);
+    } finally {
+      dshRestarting = null;
+    }
+  })();
+  return dshRestarting;
+}
+
+async function runArchiveAction(action, ids) {
+  const titles = await fetchSessionTitles();
+  if (!(await confirmArchiveAction(action, ids, titles))) return { ok: false, cancelled: true };
+  // dsh could have gone away while the dialog was open.
+  if (!ownsLiveDsh()) return { ok: false, error: CANNOT_MANAGE_REASON };
+
+  let stopErr = null;
+  let opErr = null;
+  let done = 0;
+  try {
+    await stopOwnedDsh();
+    try {
+      if (action === 'restore') {
+        done = unarchive(DSH_HOME, ids).restored.length;
+      } else {
+        done = deleteSessions(DSH_HOME, ids).deleted.length;
+      }
+    } catch (err) {
+      opErr = err;
+    }
+  } catch (err) {
+    stopErr = err;
+  }
+
+  // Always try to bring dsh back, whether or not the data step ran.
+  let restartErr = null;
+  try {
+    await restartDshIfDown();
+  } catch (err) {
+    restartErr = err;
+  }
+
+  const problems = [];
+  if (stopErr) problems.push(stopErr.message);
+  if (opErr) problems.push(`${action === 'restore' ? '恢复' : '删除'}失败：${opErr.message}`);
+  if (restartErr) problems.push(`dsh 重新启动失败：${restartErr.message}`);
+  if (problems.length) return { ok: false, error: problems.join('；') };
+
+  // Reload after the invoke returns: reloading now would destroy the page
+  // that is awaiting this reply.
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.reloadIgnoringCache();
+  }, 300);
+  return { ok: true, done };
+}
+
+ipcMain.handle('dsh-desktop:archived-list', async (event) => {
+  if (!isDshSender(event)) return { ok: false, canManage: false, reason: '无权访问', items: [] };
+  const canManage = ownsLiveDsh();
+  let ids;
+  try {
+    ids = listArchivedIds(DSH_HOME).ids.filter((id) => typeof id === 'string');
+  } catch (err) {
+    return { ok: false, canManage, reason: `读取归档列表失败：${err.message}`, items: [] };
+  }
+  const titles = ids.length ? await fetchSessionTitles() : new Map();
+  const items = ids.map((id) => ({ id, title: titles.get(id) ?? null }));
+  if (canManage) return { ok: true, canManage, items };
+  return { ok: true, canManage, reason: CANNOT_MANAGE_REASON, items };
+});
+
+ipcMain.handle('dsh-desktop:archived-apply', async (event, action, ids) => {
+  if (!isDshSender(event)) return { ok: false, error: '无权执行此操作' };
+  if (action !== 'restore' && action !== 'delete') return { ok: false, error: '未知操作' };
+  let archivedIds;
+  try {
+    archivedIds = listArchivedIds(DSH_HOME).ids.filter((id) => typeof id === 'string');
+  } catch (err) {
+    return { ok: false, error: `读取归档列表失败：${err.message}` };
+  }
+  const checked = checkArchiveIds(ids, archivedIds);
+  if (checked.error) return { ok: false, error: checked.error };
+  if (!ownsLiveDsh()) return { ok: false, error: CANNOT_MANAGE_REASON };
+  if (archiveBusy) return { ok: false, error: '已有一个操作正在进行，请稍后再试' };
+  archiveBusy = true;
+  try {
+    return await runArchiveAction(action, checked.ids);
+  } finally {
+    archiveBusy = false;
+  }
 });
 
 // Inset traffic lights are a macOS concept (titleBarStyle/trafficLightPosition
@@ -320,6 +613,10 @@ function createWindow() {
   });
 
   win.loadURL(DSH_URL);
+  mainWindow = win;
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null;
+  });
 
   // Keep this window on dsh. A link in a chat message or tool output with
   // target=_blank / window.open used to get Electron's default (a second
@@ -353,7 +650,10 @@ function createWindow() {
     win.webContents.executeJavaScript(TRACE_COLLAPSE_JS);
     win.webContents.executeJavaScript(TRACE_TRANSLATE_JS);
     win.webContents.executeJavaScript(FONT_PICKER_JS);
+    win.webContents.executeJavaScript(ICONS_JS);
+    win.webContents.executeJavaScript(BATCH_SELECT_JS);
     win.webContents.executeJavaScript(FILE_PICKER_JS);
+    if (ARCHIVED_PAGE_JS) win.webContents.executeJavaScript(ARCHIVED_PAGE_JS);
     win.webContents.executeJavaScript(APPROVAL_HOTKEY_JS);
   };
   win.webContents.on('dom-ready', applyTheme);

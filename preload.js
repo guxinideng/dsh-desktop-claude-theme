@@ -11,4 +11,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('dshDesktop', {
   pickFiles: () => ipcRenderer.invoke('dsh-desktop:pick-files'),
   pickFolders: () => ipcRenderer.invoke('dsh-desktop:pick-folders'),
+  // Archived-sessions page. The list is read-only; apply runs restore or
+  // delete behind a native confirm dialog in the main process.
+  archivedList: () => ipcRenderer.invoke('dsh-desktop:archived-list'),
+  archivedApply: (action, ids) => ipcRenderer.invoke('dsh-desktop:archived-apply', action, ids),
 });
