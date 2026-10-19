@@ -58,6 +58,18 @@ ipcMain.handle('dsh-desktop:pick-files', async (event) => {
   return canceled ? [] : filePaths;
 });
 
+// Folder twin of pick-files above — same sender check, same paths-only return.
+ipcMain.handle('dsh-desktop:pick-folders', async (event) => {
+  // Same sender validation as pick-files: only the dsh page may open a dialog.
+  const senderUrl = (event.senderFrame && event.senderFrame.url) || '';
+  if (!(senderUrl === DSH_URL || senderUrl.startsWith(DSH_URL + '/'))) return [];
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+    properties: ['openDirectory', 'multiSelections'],
+  });
+  return canceled ? [] : filePaths;
+});
+
 // The bundled fonts live on disk, but the page is served from
 // http://127.0.0.1:3080 — Chromium blocks file:// subresources from an http
 // origin, and fonts are CORS-checked on top of that. So serve them over a

@@ -430,3 +430,52 @@ body:not([data-ds-dark-theme]) [class*="sidebarCol"] {
 [class*="hHd-Xa_root"] {
   width: 100% !important;
 }
+
+/* ── Density pass ────────────────────────────────────────────────────── */
+
+/* Stats line under the composer: only the first item stays visible. The
+   rest fade in on hover. Opacity, not display, so the row never reflows.
+   label-tweaks.js sets the full text as the row's title. */
+[class*="FJxK0a_root"] > :nth-child(n+2) {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+[class*="FJxK0a_root"]:hover > * {
+  opacity: 1;
+}
+
+/* Context-usage ring: hidden while usage is under 50%, shown again while
+   the composer card is hovered or focused. Usage at 50% or more stays
+   visible. Clicks still work, since opacity keeps the button hit-testable. */
+[data-ds-ctx="low"] {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.ds-composer-card:hover [data-ds-ctx="low"],
+.ds-composer-card:focus-within [data-ds-ctx="low"] {
+  opacity: 1;
+}
+
+/* Model button: hide the reasoning-effort text. The effort stays in the
+   aria-label and the title, and it can still be changed in the menu. */
+[class*="_7KE1Ra_triggerEffort"] {
+  display: none !important;
+}
+
+/* Top-bar session log button: icon only. The text span is hidden, and
+   label-tweaks.js sets the title. Spans that wrap an svg are kept, so the
+   icon survives. */
+[class*="nL4_yW_sessionLogButton"] span:not(:has(svg)) {
+  display: none !important;
+}
+
+/* Sidebar workspace row: the view-options and add icons stay hidden until
+   the row is hovered or focused. The search icon stays visible. */
+[class*="qDHVXG_iconButton"]:not([class*="qDHVXG_searchButton"]) {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+*:has(> [class*="qDHVXG_iconButton"]:not([class*="qDHVXG_searchButton"])):is(:hover, :focus-within)
+  > [class*="qDHVXG_iconButton"]:not([class*="qDHVXG_searchButton"]) {
+  opacity: 1;
+}

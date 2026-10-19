@@ -10,4 +10,5 @@ const { contextBridge, ipcRenderer } = require('electron');
 // dialog for any other purpose.
 contextBridge.exposeInMainWorld('dshDesktop', {
   pickFiles: () => ipcRenderer.invoke('dsh-desktop:pick-files'),
+  pickFolders: () => ipcRenderer.invoke('dsh-desktop:pick-folders'),
 });

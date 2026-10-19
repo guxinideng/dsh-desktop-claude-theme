@@ -93,13 +93,66 @@
       });
   }
 
+  // theme.css shows only the first stats item by default. The full line
+  // goes into title as a fallback. Idempotent: writes only on change.
+  function tagStatsRow() {
+    document.querySelectorAll('[class*="FJxK0a_root"]').forEach(function (row) {
+      var text = (row.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text && row.title !== text) row.title = text;
+    });
+  }
+
+  // Context-usage ring next to send. Its aria-label reads "上下文已用 6%".
+  // Tag low (<50) or high (>=50) so theme.css can fade the idle low state.
+  // An unparseable label clears the tag, so the ring stays visible.
+  var CTX_RE = /上下文已用\s*(\d+(?:\.\d+)?)\s*%/;
+  function tagContextRing() {
+    document.querySelectorAll('button[class*="JObwrW_trigger"]').forEach(function (btn) {
+      var m = CTX_RE.exec(btn.getAttribute('aria-label') || '');
+      if (!m) {
+        delete btn.dataset.dsCtx;
+        return;
+      }
+      var level = parseFloat(m[1]) < 50 ? 'low' : 'high';
+      if (btn.dataset.dsCtx !== level) btn.dataset.dsCtx = level;
+    });
+  }
+
+  // The reasoning-effort text is hidden in theme.css, so the full aria-label
+  // goes into title for hover. aria-label itself is left alone.
+  function tagModelButton() {
+    document.querySelectorAll('[aria-label*="选择模型"]').forEach(function (btn) {
+      var label = btn.getAttribute('aria-label');
+      if (label && btn.title !== label) btn.title = label;
+    });
+  }
+
+  // The top-bar session log button shows only its icon, so title carries the label.
+  function tagSessionLogButton() {
+    document.querySelectorAll('[class*="nL4_yW_sessionLogButton"]').forEach(function (btn) {
+      if (btn.title !== '会话日志') btn.title = '会话日志';
+    });
+  }
+
   function applyTweaks() {
     shortenModelLabel();
     tagComposerCard();
     tidyModelMenu();
+    tagStatsRow();
+    tagContextRing();
+    tagModelButton();
+    tagSessionLogButton();
   }
 
   applyTweaks();
   var observer = new MutationObserver(applyTweaks);
-  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  // aria-label is observed too: the context ring's percentage changes
+  // through an attribute, which the childList/characterData config misses.
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ['aria-label'],
+  });
 })();
