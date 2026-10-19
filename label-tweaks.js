@@ -47,6 +47,15 @@
       // Restricting to direct children means only a real group answers.
       var title = group.querySelector(':scope > [class*="_groupTitle"]');
       if (!title) return;
+      // Pro rows: hide the menu item only. Runs before the early returns
+      // below so the vision group still gets it on every pass.
+      group.querySelectorAll('[class*="_modelName"]').forEach(function (el) {
+        if (!/\bpro\b/i.test(el.textContent || '')) return;
+        var row = el.closest('[role="menuitemradio"]');
+        if (!row) return;
+        row.dataset.dsHidePro = '1';
+        row.style.display = 'none';
+      });
       var text = (title.textContent || '').trim();
       // This runs on every mutation, so it has to be idempotent. Trimming
       // the suffix renames the wrapped group to exactly "DeepSeek" — the
