@@ -69,3 +69,12 @@ Copyright (c) 2013-2020 GitHub Inc.
 MIT License
 https://github.com/electron/electron
 ```
+
+## Lucide (icons.js)
+
+```
+Copyright (c) Lucide Contributors
+ISC License
+https://lucide.dev
+Icon paths in icons.js are derived from Lucide (lucide-static 0.460.0).
+```

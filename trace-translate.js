@@ -40,6 +40,38 @@
     [/^started background job (\S+)$/, function (m) { return '已启动后台任务 ' + m[1]; }],
   ];
 
+  // Trace-row labels. Title rules only fire inside the row title element and
+  // the lookahead stops at a word boundary, so model prose that merely starts
+  // with "Read" or "Thinking" is left alone. Each rule replaces only the
+  // leading word, so the detail after "·" stays as the model wrote it.
+  var TRACE_TITLE_RULES = [
+    [/^(\s*)Think(?=[\s·]|$)/, '$1思考'],
+    [/^(\s*)Tool call(?=[\s·]|$)/, '$1工具调用'],
+    [/^(\s*)permission(?=[\s·]|$)/, '$1权限'],
+    [/^(\s*)Read(?=[\s·]|$)/, '$1读取'],
+    [/^(\s*)Write(?=[\s·]|$)/, '$1写入'],
+    [/^(\s*)Edit(?=[\s·]|$)/, '$1编辑'],
+  ];
+  // Permission preset names, anywhere inside a trace row.
+  var TRACE_ROW_RULES = [
+    [/preset workspace-write/g, '档位 · 可写工作区'],
+    [/preset read-only/g, '档位 · 只读'],
+  ];
+
+  function translateTrace(node) {
+    var el = node.parentElement;
+    if (!el) return;
+    var raw = node.nodeValue;
+    var out = raw;
+    if (el.closest('[class*="_title_9cl6j_"]')) {
+      TRACE_TITLE_RULES.forEach(function (r) { out = out.replace(r[0], r[1]); });
+    }
+    if (el.closest('[data-disclosure-row="true"],[class*="_callRow"]')) {
+      TRACE_ROW_RULES.forEach(function (r) { out = out.replace(r[0], r[1]); });
+    }
+    if (out !== raw) node.nodeValue = out;
+  }
+
   function translateNode(node) {
     var raw = node.nodeValue;
     if (!raw) return;
@@ -56,6 +88,7 @@
         return;
       }
     }
+    translateTrace(node);
   }
 
   function translateAll(root) {
