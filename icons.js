@@ -23,7 +23,7 @@
     viewBox: '0 0 24 24',
     fill: 'none',
     stroke: 'currentColor',
-    'stroke-width': '1.6',
+    'stroke-width': '1.9',
     'stroke-linecap': 'round',
     'stroke-linejoin': 'round',
     'aria-hidden': 'true'
@@ -72,7 +72,7 @@
   // Mask glyph as a data URI. Mask uses the alpha channel, so black strokes
   // are the visible part; the colour comes from currentColor on the svg box.
   function maskUrl(name) {
-    var svg = '<svg xmlns="' + NS + '" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+    var svg = '<svg xmlns="' + NS + '" viewBox="0 0 24 24" fill="none" stroke="black" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' +
       ICONS[name] + '</svg>';
     return 'url("data:image/svg+xml,' + encodeURIComponent(svg) + '")';
   }

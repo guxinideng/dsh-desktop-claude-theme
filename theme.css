@@ -593,7 +593,7 @@ body[data-ds-flat="1"] [class*="qDHVXG_sectionLabel"]::before {
   content: "最近";
   font-size: 13px;
   line-height: 20px;
-  color: rgb(129, 133, 140);
+  color: var(--dsw-alias-label-tertiary, rgb(129, 133, 140));
 }
 /* Rows: 34px pitch, title aligned with the label. Flat rows have no slot
    element, so only the row padding moves. An in-progress dot (WithStatus

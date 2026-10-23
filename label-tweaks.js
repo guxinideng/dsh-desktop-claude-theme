@@ -141,7 +141,7 @@
   var SESSION_MENU_RE = /^会话“(.*)”的操作$/;
   var DOWNLOAD_SVG =
     '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor"' +
-    ' stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    ' stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M8 2.5v7.5"/><path d="M5 7l3 3 3-3"/><path d="M3 12.5h10"/></svg>';
   var lastSessionMenuTitle = null;
   var exportBusy = false;

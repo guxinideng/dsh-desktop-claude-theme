@@ -11,6 +11,9 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 contextBridge.exposeInMainWorld('dshDesktop', {
   pickFiles: () => ipcRenderer.invoke('dsh-desktop:pick-files'),
   pickFolders: () => ipcRenderer.invoke('dsh-desktop:pick-folders'),
+  // Only for paths returned by pickFiles. Main process checks the path is in
+  // that approved set and is a supported image; returns { ok, name, mime, base64 }.
+  readPickedImage: (p) => ipcRenderer.invoke('dsh-desktop:read-picked-image', p),
   // Electron 43 removed File.path; webUtils is the only way to get a path.
   // Returns just the path string, never file contents.
   getPathForFile: (file) => {
@@ -20,4 +23,8 @@ contextBridge.exposeInMainWorld('dshDesktop', {
   // delete behind a native confirm dialog in the main process.
   archivedList: () => ipcRenderer.invoke('dsh-desktop:archived-list'),
   archivedApply: (action, ids) => ipcRenderer.invoke('dsh-desktop:archived-apply', action, ids),
+  // Cleanup page. cleanupInfo is read-only. cleanupApply(kind) confirms with a
+  // native dialog in the main process before deleting; kind is whitelisted there.
+  cleanupInfo: () => ipcRenderer.invoke('dsh-desktop:cleanup-info'),
+  cleanupApply: (kind) => ipcRenderer.invoke('dsh-desktop:cleanup-apply', kind),
 });

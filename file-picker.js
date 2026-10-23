@@ -106,11 +106,74 @@
     if (changed) renderChips();
   }
 
+  // Raster types dsh accepts as image attachments (same list as main.js).
+  var PICKED_IMAGE_RE = /\.(png|jpe?g|gif|webp)$/i;
+  var PICKED_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+  function isPickedImage(p) {
+    return PICKED_IMAGE_RE.test(p);
+  }
+
+  function delay(ms) {
+    return new Promise(function (resolve) { setTimeout(resolve, ms); });
+  }
+
+  // Fire the same paste event DSH handles for a real clipboard image, so it
+  // makes its own native thumbnail + ✕ and sends the image to the model.
+  function pasteImageFile(ta, file) {
+    var dt = new DataTransfer();
+    dt.items.add(file);
+    ta.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }
+
+  // Resolves true when the image was handed to DSH; false means the caller
+  // should fall back to a filename chip. Never rejects.
+  function attachPickedImage(p) {
+    return window.dshDesktop.readPickedImage(p).then(function (res) {
+      if (!res || !res.ok || typeof res.base64 !== 'string') return false;
+      var ta = composer();
+      if (!ta) return false;
+      var binary = atob(res.base64);
+      var bytes = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      if (bytes.length > PICKED_IMAGE_MAX_BYTES) return false;
+      pasteImageFile(ta, new File([bytes], res.name || 'image', { type: res.mime }));
+      return true;
+    }).catch(function () { return false; });
+  }
+
+  // One image at a time, 50 ms apart, so DSH handles each paste before the next.
+  // Returns the paths that failed and must become chips.
+  function attachPickedImages(paths) {
+    var failed = [];
+    return paths.reduce(function (chain, p) {
+      return chain.then(function () {
+        return attachPickedImage(p).then(function (ok) {
+          if (!ok) failed.push(p);
+          return delay(50);
+        });
+      });
+    }, Promise.resolve()).then(function () { return failed; });
+  }
+
   function pickFiles() {
     window.dshDesktop.pickFiles().then(function (paths) {
-      addChips((paths || []).map(function (p) { return { path: p, dir: false }; }));
+      var list = paths || [];
+      var images = [];
+      var others = [];
+      list.forEach(function (p) {
+        // Without the bridge method or the composer, every image stays a chip.
+        var canAttach = typeof window.dshDesktop.readPickedImage === 'function' && !!composer();
+        if (canAttach && isPickedImage(p)) images.push(p);
+        else others.push(p);
+      });
+      addChips(others.map(function (p) { return { path: p, dir: false }; }));
       var ta = composer();
       if (ta) ta.focus();
+      if (!images.length) return;
+      return attachPickedImages(images).then(function (failed) {
+        addChips(failed.map(function (p) { return { path: p, dir: false }; }));
+      });
     }).catch(function () { /* dialog dismissed */ });
   }
 
@@ -212,18 +275,18 @@
     style.id = STYLE_ID;
     style.textContent = [
       '#' + MENU_ID + ' {',
-      '  position: fixed; z-index: 10000; min-width: 236px; box-sizing: border-box; padding: 6px;',
+      '  position: fixed; z-index: 10000; min-width: 236px; box-sizing: border-box; padding: 4px;',
       '  border-radius: 12px;',
       '  background: var(--dsw-specific-menu, var(--dsw-alias-bg-overlay, #fff));',
-      '  border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, .1));',
-      '  box-shadow: 0 8px 24px rgba(0, 0, 0, .12), 0 1px 3px rgba(0, 0, 0, .08);',
+      '  border: 1px solid var(--dsw-alias-border-inverted, var(--dsw-alias-border-l2, rgba(0, 0, 0, .1)));',
+      '  box-shadow: var(--dsw-shadow-lv3, 0 8px 24px rgba(0, 0, 0, .12), 0 1px 3px rgba(0, 0, 0, .08));',
       '  color: var(--dsw-alias-label-primary, rgb(40, 36, 32));',
       '  font: 14px/1.2 var(--dsw-font-family, system-ui, sans-serif);',
       '}',
       '.ds-fp-item {',
-      '  display: flex; align-items: center; gap: 10px; width: 100%; height: 36px; box-sizing: border-box;',
-      '  padding: 0 10px; margin: 0; border: 0; border-radius: 8px; background: transparent;',
-      '  color: inherit; font: inherit; text-align: left; cursor: pointer;',
+      '  display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; box-sizing: border-box;',
+      '  padding: 8px 10px; margin: 0; border: 0; border-radius: 10px; background: transparent;',
+      '  color: inherit; font: inherit; font-size: 14px; line-height: 22px; text-align: left; cursor: pointer;',
       '}',
       '.ds-fp-item:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(0, 0, 0, .05)); }',
       '.ds-fp-icon { display: inline-flex; flex: none; color: var(--dsw-alias-label-secondary, rgb(110, 103, 92)); }',
@@ -239,7 +302,7 @@
       '  max-width: 260px; height: 28px; padding: 0 4px 0 8px; min-width: 0;',
       '  border-radius: 8px; border: 1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, .1));',
       '  background: var(--dsw-alias-button-floating-fill, rgb(240, 238, 228));',
-      '  color: var(--dsw-alias-label-primary, rgb(40, 36, 32)); font-size: 13px;',
+      '  color: var(--dsw-alias-label-primary, rgb(40, 36, 32)); font-size: 13px; line-height: 20px;',
       '}',
       '.ds-fp-chip-icon { display: inline-flex; flex: none; color: var(--dsw-alias-label-secondary, rgb(110, 103, 92)); }',
       '.ds-fp-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }',

@@ -30,17 +30,17 @@
   ];
 
   var CSS = [
-    '#' + OVERLAY_ID + ' { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; background: rgba(15, 17, 21, 0.38); font-family: -apple-system, "system-ui", "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif; }',
-    '#' + OVERLAY_ID + ' .ds-ar-card { box-sizing: border-box; width: min(640px, calc(100vw - 32px)); max-height: 80vh; display: flex; flex-direction: column; background: var(--dsw-alias-bg-layer-1, #fffdf9); color: var(--dsw-alias-label-primary, #1f1b16); border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.12)); border-radius: 16px; box-shadow: 0 18px 48px rgba(0,0,0,0.22); padding: 22px 24px 18px; outline: none; }',
+    '#' + OVERLAY_ID + ' { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; background: rgba(15, 17, 21, 0.38); font-family: var(--dsw-font-family, -apple-system, "system-ui", "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif); }',
+    '#' + OVERLAY_ID + ' .ds-ar-card { box-sizing: border-box; width: min(640px, calc(100vw - 32px)); max-height: 80vh; display: flex; flex-direction: column; background: var(--dsw-alias-bg-layer-1, #fffdf9); color: var(--dsw-alias-label-primary, #1f1b16); border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.12)); border-radius: 24px; box-shadow: var(--dsw-shadow-lv3, 0 18px 48px rgba(0,0,0,0.22)); padding: 22px 24px 18px; outline: none; overflow-y: auto; }',
     '#' + OVERLAY_ID + ' .ds-ar-title { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: 0.01em; }',
-    '#' + OVERLAY_ID + ' .ds-ar-desc { margin: 6px 0 14px; font-size: 13px; line-height: 1.6; color: var(--dsw-alias-label-secondary, #6b645b); }',
+    '#' + OVERLAY_ID + ' .ds-ar-desc { margin: 6px 0 14px; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary, #6b645b); }',
     '#' + OVERLAY_ID + ' .ds-ar-banner { margin: 0 0 12px; padding: 9px 12px; border-radius: 10px; font-size: 13px; line-height: 1.5; background: var(--dsw-alias-state-warn-bg, #fdf1e1); color: var(--dsw-alias-state-warn-label, #9a5a12); }',
     '#' + OVERLAY_ID + ' .ds-ar-banner[hidden] { display: none; }',
     '#' + OVERLAY_ID + ' .ds-ar-body { flex: 1 1 auto; min-height: 120px; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; border: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.08)); border-radius: 12px; }',
     '#' + OVERLAY_ID + ' .ds-ar-body::-webkit-scrollbar { display: none; }',
     '#' + OVERLAY_ID + ' .ds-ar-state { padding: 36px 16px; text-align: center; font-size: 14px; color: var(--dsw-alias-label-secondary, #6b645b); line-height: 1.6; }',
     '#' + OVERLAY_ID + ' .ds-ar-list { list-style: none; margin: 0; padding: 4px 0; }',
-    '#' + OVERLAY_ID + ' .ds-ar-row { display: flex; align-items: center; gap: 10px; padding: 9px 14px; cursor: pointer; border-top: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.06)); }',
+    '#' + OVERLAY_ID + ' .ds-ar-row { display: flex; align-items: center; gap: 10px; padding: 9px 14px; cursor: pointer; border-top: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.06)); transition: background-color 150ms cubic-bezier(.4,0,.2,1); }',
     '#' + OVERLAY_ID + ' .ds-ar-row:first-child { border-top: 0; }',
     '#' + OVERLAY_ID + ' .ds-ar-row:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); }',
     '#' + OVERLAY_ID + ' .ds-ar-row input { margin: 0; flex: 0 0 auto; cursor: pointer; accent-color: var(--dsw-alias-brand-primary, #c96442); }',
@@ -51,7 +51,7 @@
     '#' + OVERLAY_ID + ' .ds-ar-error:empty { display: none; }',
     '#' + OVERLAY_ID + ' .ds-ar-footer { display: flex; align-items: center; gap: 8px; margin-top: 14px; flex-wrap: wrap; }',
     '#' + OVERLAY_ID + ' .ds-ar-spacer { flex: 1 1 auto; }',
-    '#' + OVERLAY_ID + ' .ds-ar-btn { appearance: none; font: inherit; font-size: 13px; padding: 7px 14px; border-radius: 999px; cursor: pointer; border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.12)); background: transparent; color: var(--dsw-alias-label-primary, #1f1b16); }',
+    '#' + OVERLAY_ID + ' .ds-ar-btn { appearance: none; font: inherit; font-size: 14px; line-height: 22px; height: 36px; padding: 0 14px; border-radius: 18px; cursor: pointer; border: 1px solid var(--dsw-alias-border-l2, rgba(0,0,0,0.12)); background: transparent; color: var(--dsw-alias-label-primary, #1f1b16); transition: background-color 150ms cubic-bezier(.4,0,.2,1); }',
     '#' + OVERLAY_ID + ' .ds-ar-btn:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04)); }',
     '#' + OVERLAY_ID + ' .ds-ar-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, #c96442); outline-offset: 2px; }',
     '#' + OVERLAY_ID + ' .ds-ar-btn:disabled { opacity: 0.45; cursor: not-allowed; }',
@@ -60,6 +60,22 @@
     '#' + OVERLAY_ID + ' .ds-ar-btn-primary:hover:not(:disabled) { background: var(--dsw-alias-brand-primary, #c96442); filter: brightness(0.95); }',
     '#' + OVERLAY_ID + ' .ds-ar-btn-danger { color: var(--dsw-alias-state-error-primary, #c0392b); }',
     '#' + OVERLAY_ID + ' .ds-ar-btn-danger:hover:not(:disabled) { background: rgba(192, 57, 43, 0.08); }',
+    '#' + OVERLAY_ID + ' .ds-ar-tools { display: flex; justify-content: flex-end; margin: 0 0 10px; }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean { flex: 0 0 auto; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.08)); }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean-title { margin: 0; font-size: 15px; font-weight: 600; }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean-desc { margin: 4px 0 6px; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary, #6b645b); }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean-status { margin: 0 0 4px; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-tertiary, #9a938a); }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean-status:empty { display: none; }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 0; border-top: 1px solid var(--dsw-alias-border-l1, rgba(0,0,0,0.06)); }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean-row:first-child { border-top: 0; }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean-main { flex: 1 1 200px; min-width: 0; }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean-name { font-size: 14px; line-height: 22px; }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean-sub { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary, #6b645b); }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean-size { flex: 0 0 auto; min-width: 72px; text-align: right; font-size: 14px; line-height: 22px; font-variant-numeric: tabular-nums; }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean-actions { flex: 0 0 auto; display: flex; gap: 8px; }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean-flash { flex: 0 0 auto; font-size: 12px; color: var(--dsw-alias-label-secondary, #6b645b); }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean-err { flex: 0 0 100%; font-size: 13px; line-height: 18px; color: var(--dsw-alias-state-error-primary, #c0392b); }',
+    '#' + OVERLAY_ID + ' .ds-ar-clean-err:empty { display: none; }',
     '[' + NAV_ATTR + '].ds-ar-nav-active { font-weight: 600; }'
   ].join('\n');
 
@@ -71,7 +87,13 @@
     busy: false,
     pendingAction: null,
     overlay: null,
-    lastFocus: null
+    lastFocus: null,
+    cleanupBusy: false,   // a storage-cleanup action is in flight
+    cleanupKind: null,    // its kind, to label the button "处理中…"
+    cleanup: { info: null, loading: false, loadError: false },
+    rowErr: {},           // rowKey -> error text
+    flash: {},            // rowKey -> "已清理 X" (3s)
+    flashTimers: {}
   };
 
   function el(tag, cls, text) {
@@ -87,6 +109,59 @@
     style.id = STYLE_ID;
     style.textContent = CSS;
     (document.head || document.documentElement).appendChild(style);
+  }
+
+  // ---- storage cleanup helpers -------------------------------------------
+  // Rows of the 存储清理 block. rule: 'nonempty' disables the button and shows
+  // "空" when count is 0; 'gt1' only disables it when count <= 1.
+
+  var CLEAN_ROWS = [
+    { key: 'trash', name: '回收区', desc: '已删除会话的文件，清空后才真正从磁盘删除。',
+      buttons: [{ kind: 'trash', label: '清空回收区', rule: 'nonempty' }] },
+    { key: 'backups', name: '索引备份', desc: '每次恢复/删除前自动生成的索引备份。',
+      buttons: [{ kind: 'backups-keep-latest', label: '保留最新一份', rule: 'gt1' },
+                { kind: 'backups-all', label: '全部清理', rule: 'nonempty' }] },
+    { key: 'attachments', name: '会话附件缓存', desc: '图片等附件缓存；仍显示在会话里的图片之后可能无法再显示。',
+      buttons: [{ kind: 'attachments', label: '清空附件', rule: 'nonempty' }] }
+  ];
+
+  // Both methods must exist, or the whole cleanup block (and the delete-all
+  // button, which uses cleanupApply) is left out.
+  function cleanupSupported() {
+    var api = window.dshDesktop;
+    return !!api && typeof api.cleanupInfo === 'function' && typeof api.cleanupApply === 'function';
+  }
+
+  function callBridge(name, args) {
+    try {
+      return Promise.resolve(window.dshDesktop[name].apply(window.dshDesktop, args || []));
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+
+  function fmtBytes(n) {
+    var v = Number(n);
+    if (!isFinite(v) || v < 0) v = 0;
+    if (v < 1024) return Math.round(v) + ' B';
+    var units = ['KB', 'MB', 'GB'];
+    var i = -1;
+    do { v /= 1024; i++; } while (v >= 1024 && i < units.length - 1);
+    return v.toFixed(1) + ' ' + units[i];
+  }
+
+  function errText(err) {
+    return (err && err.message) || '未知错误';
+  }
+
+  function resetCleanupState() {
+    Object.keys(state.flashTimers).forEach(function (k) { clearTimeout(state.flashTimers[k]); });
+    state.flashTimers = {};
+    state.flash = {};
+    state.rowErr = {};
+    state.cleanup = { info: null, loading: false, loadError: false };
+    state.cleanupBusy = false;
+    state.cleanupKind = null;
   }
 
   // The settings dialog (React-managed) is the one whose text contains 通用设置.
@@ -195,10 +270,24 @@
     footer.appendChild(remove);
     footer.appendChild(close);
 
+    var tools = null;
+    var deleteAll = null;
+    var clean = null;
+    if (cleanupSupported()) {
+      tools = el('div', 'ds-ar-tools');
+      deleteAll = el('button', 'ds-ar-btn ds-ar-btn-danger', '全部永久删除');
+      deleteAll.type = 'button';
+      deleteAll.addEventListener('click', function () { applyAll(); });
+      tools.appendChild(deleteAll);
+      clean = buildCleanSection();
+    }
+
     card.appendChild(title);
     card.appendChild(desc);
     card.appendChild(banner);
+    if (tools) card.appendChild(tools);
     card.appendChild(body);
+    if (clean) card.appendChild(clean.section);
     card.appendChild(error);
     card.appendChild(footer);
     overlay.appendChild(card);
@@ -214,8 +303,46 @@
     state.overlay = overlay;
     return {
       overlay: overlay, card: card, banner: banner, body: body, error: error,
-      selectAll: selectAll, restore: restore, remove: remove
+      selectAll: selectAll, restore: restore, remove: remove,
+      deleteAll: deleteAll, clean: clean
     };
+  }
+
+  function buildCleanSection() {
+    var section = el('div', 'ds-ar-clean');
+    var list = el('div', 'ds-ar-clean-list');
+    section.appendChild(el('h3', 'ds-ar-clean-title', '存储清理'));
+    section.appendChild(el('p', 'ds-ar-clean-desc', '这些文件不在侧栏显示，清理后无法恢复。'));
+    var status = el('div', 'ds-ar-clean-status');
+    section.appendChild(status);
+    section.appendChild(list);
+
+    var rows = CLEAN_ROWS.map(function (def) {
+      var row = el('div', 'ds-ar-clean-row');
+      var main = el('div', 'ds-ar-clean-main');
+      main.appendChild(el('div', 'ds-ar-clean-name', def.name));
+      main.appendChild(el('div', 'ds-ar-clean-sub', def.desc));
+      var size = el('span', 'ds-ar-clean-size', '—');
+      var actions = el('div', 'ds-ar-clean-actions');
+      var buttons = def.buttons.map(function (b) {
+        var btn = el('button', 'ds-ar-btn', b.label);
+        btn.type = 'button';
+        btn.addEventListener('click', function () { runCleanup(def.key, b); });
+        actions.appendChild(btn);
+        return { def: b, node: btn };
+      });
+      var flash = el('span', 'ds-ar-clean-flash');
+      var err = el('div', 'ds-ar-clean-err');
+      err.setAttribute('role', 'alert');
+      row.appendChild(main);
+      row.appendChild(size);
+      row.appendChild(actions);
+      row.appendChild(flash);
+      row.appendChild(err);
+      list.appendChild(row);
+      return { key: def.key, size: size, buttons: buttons, flash: flash, err: err };
+    });
+    return { section: section, status: status, rows: rows };
   }
 
   var ui = null;
@@ -230,15 +357,48 @@
     var canManage = state.canManage !== false;
     var hasItems = state.items.length > 0 && !state.loadError;
 
-    ui.selectAll.disabled = state.busy || !hasItems;
+    var anyBusy = state.busy || state.cleanupBusy;
+
+    ui.selectAll.disabled = anyBusy || !hasItems;
     var allSelected = hasItems && ids.length === state.items.length;
     ui.selectAll.textContent = allSelected ? '取消全选' : '全选';
 
-    var canAct = canManage && !state.busy && ids.length > 0;
+    var canAct = canManage && !anyBusy && ids.length > 0;
     ui.restore.disabled = !canAct;
     ui.remove.disabled = !canAct;
     ui.restore.textContent = state.busy && state.pendingAction === 'restore' ? '处理中…' : '恢复所选';
     ui.remove.textContent = state.busy && state.pendingAction === 'delete' ? '处理中…' : '永久删除所选';
+
+    if (ui.deleteAll) {
+      ui.deleteAll.disabled = !canManage || anyBusy || state.loading || !hasItems;
+      ui.deleteAll.textContent = state.busy && state.pendingAction === 'archived-all' ? '处理中…' : '全部永久删除';
+    }
+    renderCleanup();
+  }
+
+  function renderCleanup() {
+    if (!ui || !ui.clean) return;
+    var c = ui.clean;
+    var cs = state.cleanup;
+    var hasData = !!cs.info && !cs.loadError;
+    var locked = state.busy || state.cleanupBusy || cs.loading;
+    c.status.textContent = cs.loadError ? '读取失败' : (cs.loading && !hasData ? '读取中…' : '');
+    c.rows.forEach(function (r) {
+      var data = hasData && cs.info[r.key] ? cs.info[r.key] : null;
+      r.size.textContent = data ? fmtBytes(data.bytes) : '—';
+      r.buttons.forEach(function (b) {
+        var count = data ? data.count : undefined;
+        var text = b.def.label;
+        var disabled = locked || !data;
+        if (data && b.def.rule === 'nonempty' && !(count > 0)) { text = '空'; disabled = true; }
+        if (data && b.def.rule === 'gt1' && !(count > 1)) disabled = true;
+        if (state.cleanupBusy && state.cleanupKind === b.def.kind) { text = '处理中…'; disabled = true; }
+        b.node.textContent = text;
+        b.node.disabled = disabled;
+      });
+      r.err.textContent = state.rowErr[r.key] || '';
+      r.flash.textContent = state.flash[r.key] || '';
+    });
   }
 
   function setBody(node) {
@@ -267,7 +427,7 @@
       var cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.checked = !!state.selected[it.id];
-      cb.disabled = state.busy;
+      cb.disabled = state.busy || state.cleanupBusy;
       cb.addEventListener('change', function () {
         if (cb.checked) state.selected[it.id] = true;
         else delete state.selected[it.id];
@@ -366,7 +526,7 @@
   }
 
   function applyAction(action) {
-    if (state.busy || state.loading) return;
+    if (state.busy || state.loading || state.cleanupBusy) return;
     if (state.canManage === false) return;
     var ids = selectedIds();
     if (!ids.length) return;
@@ -402,6 +562,107 @@
       if (session !== state.session) return;
       setBusy(false);
       setError('操作失败：' + ((err && err.message) || '未知错误'));
+    });
+  }
+
+  // Re-reads the storage numbers. When opts.before is given (after a cleanup
+  // succeeded), the freed size is flashed on that row for 3 seconds.
+  function loadCleanup(opts) {
+    if (!ui || !ui.clean) return;
+    var session = state.session;
+    state.cleanup.loading = true;
+    renderCleanup();
+    callBridge('cleanupInfo').then(function (res) {
+      if (session !== state.session) return;
+      state.cleanup.loading = false;
+      if (!res || res.ok !== true) {
+        state.cleanup.info = null;
+        state.cleanup.loadError = true;
+      } else {
+        state.cleanup.info = res;
+        state.cleanup.loadError = false;
+        if (opts && opts.before) flashFreed(opts.key, opts.before, res);
+      }
+      renderCleanup();
+    }, function () {
+      if (session !== state.session) return;
+      state.cleanup.loading = false;
+      state.cleanup.info = null;
+      state.cleanup.loadError = true;
+      renderCleanup();
+    });
+  }
+
+  function flashFreed(key, before, after) {
+    var b = before[key] ? Number(before[key].bytes) || 0 : 0;
+    var a = after[key] ? Number(after[key].bytes) || 0 : 0;
+    state.flash[key] = '已清理 ' + fmtBytes(Math.max(0, b - a));
+    clearTimeout(state.flashTimers[key]);
+    state.flashTimers[key] = setTimeout(function () {
+      delete state.flash[key];
+      delete state.flashTimers[key];
+      renderCleanup();
+    }, 3000);
+  }
+
+  // One button in the 存储清理 block. The native confirm is shown by the main
+  // process, so no page-side confirm here.
+  function runCleanup(key, b) {
+    if (!ui || !ui.clean) return;
+    if (state.busy || state.cleanupBusy || state.loading || state.cleanup.loading) return;
+    if (!state.cleanup.info) return;
+    var session = state.session;
+    var before = state.cleanup.info;
+    state.cleanupBusy = true;
+    state.cleanupKind = b.kind;
+    state.rowErr[key] = '';
+    render();
+    callBridge('cleanupApply', [b.kind]).then(function (res) {
+      if (session !== state.session) return;
+      state.cleanupBusy = false;
+      state.cleanupKind = null;
+      if (!res) {
+        state.rowErr[key] = '操作没有返回结果';
+        render();
+      } else if (res.cancelled) {
+        render();
+      } else if (res.ok !== true) {
+        state.rowErr[key] = String(res.error || '操作失败');
+        render();
+      } else {
+        render();
+        loadCleanup({ key: key, before: before });
+      }
+    }, function (err) {
+      if (session !== state.session) return;
+      state.cleanupBusy = false;
+      state.cleanupKind = null;
+      state.rowErr[key] = '操作失败：' + errText(err);
+      render();
+    });
+  }
+
+  // 全部永久删除: the main process shows the native confirm and may reload
+  // dsh, so the promise can stay pending forever. That is fine.
+  function applyAll() {
+    if (!ui || !ui.deleteAll) return;
+    if (state.busy || state.cleanupBusy || state.loading) return;
+    if (state.canManage === false || state.loadError || !state.items.length) return;
+    var session = state.session;
+    setError('');
+    setBusy(true, 'archived-all');
+    callBridge('cleanupApply', ['archived-all']).then(function (res) {
+      if (session !== state.session) return;
+      if (!res) { setBusy(false); setError('操作没有返回结果'); return; }
+      if (res.cancelled) { setBusy(false); return; }
+      if (res.ok !== true) { setBusy(false); setError(String(res.error || '操作失败')); return; }
+      setBusy(false);
+      load();
+      loadCleanup();
+    }, function (err) {
+      if (session !== state.session) return;
+      setBusy(false);
+      setError('操作失败：' + errText(err));
     });
   }
 
@@ -452,11 +713,13 @@
     state.busy = false;
     state.pendingAction = null;
     state.lastFocus = navItem || null;
+    resetCleanupState();
 
     ui = buildOverlay(readThemeVars(dialog));
     document.body.appendChild(ui.overlay);
     setNavActive(true);
     load();
+    loadCleanup();
     try { ui.card.focus(); } catch (e) { /* ignore */ }
   }
 
@@ -466,6 +729,7 @@
     state.session += 1;
     state.busy = false;
     state.pendingAction = null;
+    resetCleanupState();
     if (ui && ui.overlay.parentNode) ui.overlay.parentNode.removeChild(ui.overlay);
     ui = null;
     state.overlay = null;

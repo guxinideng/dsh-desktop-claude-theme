@@ -54,9 +54,32 @@ const LOADING_HTML = `<!DOCTYPE html>
 </style></head>
 <body><div class="spinner"></div><div id="status">正在准备 DeepSeek…</div></body></html>`;
 
+// Paths the user picked in the native file dialog (realpaths). read-picked-image
+// only reads files in this set, so the page cannot use it to read arbitrary
+// images. Map keeps insertion order: the first key is the oldest entry.
+const APPROVED_PICKED_PATHS_MAX = 200;
+const approvedPickedPaths = new Map();
+
+function approvePickedPaths(filePaths) {
+  for (const p of filePaths) {
+    let real;
+    try {
+      real = fs.realpathSync(p);
+    } catch {
+      continue; // vanished between the dialog and here — nothing to approve
+    }
+    approvedPickedPaths.delete(real);
+    approvedPickedPaths.set(real, true);
+  }
+  while (approvedPickedPaths.size > APPROVED_PICKED_PATHS_MAX) {
+    approvedPickedPaths.delete(approvedPickedPaths.keys().next().value);
+  }
+}
+
 // Backs the composer's "choose a file" button (file-picker.js) — returns
 // selected paths only. The renderer never reads file contents through
-// this; the agent opens the paths itself with its own tools.
+// this; the agent opens the paths itself with its own tools. The one
+// exception is read-picked-image below, for images the user picked here.
 ipcMain.handle('dsh-desktop:pick-files', async (event) => {
   // Only the dsh page itself may open a native dialog. Without this check any
   // frame inside the window (an iframe, or a page the window got navigated to)
@@ -69,7 +92,60 @@ ipcMain.handle('dsh-desktop:pick-files', async (event) => {
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
     properties: ['openFile', 'multiSelections'],
   });
-  return canceled ? [] : filePaths;
+  if (canceled) return [];
+  approvePickedPaths(filePaths);
+  return filePaths;
+});
+
+// Image types dsh's attachment store accepts (dsh-attachment-local: png, jpeg,
+// webp, gif; dsh-client-ui-conversation rejects anything else). Size cap is
+// dsh's default maxImageBytes (5 MiB, DEFAULT_MAX_IMAGE_BYTES). Duplicated in
+// file-picker.js, which runs in the page and cannot require this file.
+const PICKED_IMAGE_MIME_BY_EXT = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+};
+const PICKED_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+// Magic-number sniff. Returns the MIME type for the four accepted formats, or null.
+function sniffImageMime(buf) {
+  if (buf.length >= 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf.length >= 4 && buf.toString('latin1', 0, 4) === 'GIF8') return 'image/gif';
+  if (buf.length >= 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
+  return null;
+}
+
+// Reads one image the user picked with pick-files, so the page can attach it
+// as a native thumbnail. Check order: sender, path shape, approval set,
+// extension whitelist, regular file, size, magic number. Errors are short
+// Chinese strings and never include the path.
+ipcMain.handle('dsh-desktop:read-picked-image', async (event, p) => {
+  if (!isDshSender(event)) return { ok: false, error: '未授权的发送方' };
+  if (typeof p !== 'string' || !path.isAbsolute(p)) return { ok: false, error: '未授权的路径' };
+  let real;
+  try {
+    real = fs.realpathSync(p);
+  } catch {
+    return { ok: false, error: '未授权的路径' };
+  }
+  if (!approvedPickedPaths.has(real)) return { ok: false, error: '未授权的路径' };
+  if (!PICKED_IMAGE_MIME_BY_EXT[path.extname(p).toLowerCase()]) return { ok: false, error: '不支持的图片格式' };
+  try {
+    const st = await fs.promises.stat(real);
+    if (!st.isFile()) return { ok: false, error: '不是普通文件' };
+    if (st.size > PICKED_IMAGE_MAX_BYTES) return { ok: false, error: '图片超过 5 MB' };
+    const buf = await fs.promises.readFile(real);
+    if (buf.length > PICKED_IMAGE_MAX_BYTES) return { ok: false, error: '图片超过 5 MB' };
+    const mime = sniffImageMime(buf);
+    if (!mime) return { ok: false, error: '文件内容不是支持的图片' };
+    return { ok: true, name: path.basename(p), mime, base64: buf.toString('base64') };
+  } catch {
+    return { ok: false, error: '无法读取该图片' };
+  }
 });
 
 // Folder twin of pick-files above — same sender check, same paths-only return.
@@ -338,6 +414,7 @@ const ARCHIVE_TITLE_MAX_CHARS = 60;
 
 let archiveBusy = false; // synchronous check-and-set mutex around apply
 let dshRestarting = null; // in-flight restart, so two triggers can't spawn two dsh
+let cleanupBusy = false; // one cleanup action at a time (see the cleanup section below)
 
 // Same sender check as pick-files / pick-folders above.
 function isDshSender(event) {
@@ -508,9 +585,13 @@ function restartDshIfDown() {
   return dshRestarting;
 }
 
-async function runArchiveAction(action, ids) {
-  const titles = await fetchSessionTitles();
-  if (!(await confirmArchiveAction(action, ids, titles))) return { ok: false, cancelled: true };
+// confirmFn is optional: the cleanup page's archived-all passes its own dialog.
+// archived-apply passes nothing and gets the standard restore/delete dialog.
+async function runArchiveAction(action, ids, confirmFn) {
+  const confirmed = confirmFn
+    ? await confirmFn()
+    : await confirmArchiveAction(action, ids, await fetchSessionTitles());
+  if (!confirmed) return { ok: false, cancelled: true };
   // dsh could have gone away while the dialog was open.
   if (!ownsLiveDsh()) return { ok: false, error: CANNOT_MANAGE_REASON };
 
@@ -587,6 +668,330 @@ ipcMain.handle('dsh-desktop:archived-apply', async (event, action, ids) => {
     return await runArchiveAction(action, checked.ids);
   } finally {
     archiveBusy = false;
+  }
+});
+
+// ── Cleanup: trash / backups / attachments / archived-all ───────────────
+//
+// Permanent deletion of three DSH_HOME subfolders, plus archived-all. Every
+// action is confirmed with a native dialog before anything is removed. Only
+// the children of trash/, backups/ and attachments/ are ever deleted (the roots
+// stay). sessions, storages, profiles, skills, settings.yaml, .credentials*
+// and gemini-keys.json are never listed here. archived-all goes through the
+// same stop / delete / restart path as archived-apply, via runArchiveAction.
+
+const CLEANUP_KINDS = ['trash', 'backups-keep-latest', 'backups-all', 'attachments', 'archived-all'];
+const CLEANUP_DIR_BY_KIND = {
+  trash: 'trash',
+  'backups-keep-latest': 'backups',
+  'backups-all': 'backups',
+  attachments: 'attachments',
+};
+
+// Lstat that treats any error as "not there". Used only for listing, where a
+// broken entry should be skipped rather than fail the whole listing.
+function lstatOrNull(p) {
+  try {
+    return fs.lstatSync(p);
+  } catch {
+    return null;
+  }
+}
+
+// Resolves ~/.dsh/<name> for cleanup. Missing gives null (nothing to do). A
+// symlink or non-directory root is refused outright.
+function cleanupRoot(name) {
+  const root = path.join(DSH_HOME, name);
+  let st;
+  try {
+    st = fs.lstatSync(root);
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+  if (st.isSymbolicLink()) throw new Error(`~/.dsh/${name} 是符号链接，已拒绝清理`);
+  if (!st.isDirectory()) throw new Error(`~/.dsh/${name} 不是目录，已拒绝清理`);
+  return root;
+}
+
+function cleanupRootOrNull(name) {
+  try {
+    return cleanupRoot(name);
+  } catch {
+    return null;
+  }
+}
+
+// Total size of regular files under p. Symlinks are never followed and count
+// as 0; unreadable entries are skipped.
+function measureBytes(p) {
+  const st = lstatOrNull(p);
+  if (!st || st.isSymbolicLink()) return 0;
+  if (st.isFile()) return st.size;
+  if (!st.isDirectory()) return 0;
+  let names;
+  try {
+    names = fs.readdirSync(p);
+  } catch {
+    return 0;
+  }
+  let total = 0;
+  for (const name of names) total += measureBytes(path.join(p, name));
+  return total;
+}
+
+// Number of regular files under p, recursively. Symlinks are not counted.
+function countRegularFiles(p) {
+  const st = lstatOrNull(p);
+  if (!st || st.isSymbolicLink()) return 0;
+  if (st.isFile()) return 1;
+  if (!st.isDirectory()) return 0;
+  let names;
+  try {
+    names = fs.readdirSync(p);
+  } catch {
+    return 0;
+  }
+  let n = 0;
+  for (const name of names) n += countRegularFiles(path.join(p, name));
+  return n;
+}
+
+// Direct children of a root, each with its lstat result.
+function topEntries(root) {
+  let names;
+  try {
+    names = fs.readdirSync(root);
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const name of names) {
+    const abs = path.join(root, name);
+    const st = lstatOrNull(abs);
+    if (st) out.push({ name, abs, st });
+  }
+  return out;
+}
+
+// Plain string comparison: names carry ISO timestamps, so the largest is the newest.
+function latestName(names) {
+  let best = null;
+  for (const n of names) if (best === null || n > best) best = n;
+  return best;
+}
+
+function formatBytes(n) {
+  if (n < 1024) return `${n} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
+}
+
+// Read-only summary for the cleanup page. Nothing here writes or deletes.
+ipcMain.handle('dsh-desktop:cleanup-info', (event) => {
+  if (!isDshSender(event)) return { ok: false, error: '无权访问' };
+  const trash = { bytes: 0, count: 0 };
+  const backups = { bytes: 0, count: 0, latest: null };
+  const attachments = { bytes: 0, count: 0 };
+  const archived = { count: 0 };
+
+  const trashRoot = cleanupRootOrNull('trash');
+  if (trashRoot) {
+    const entries = topEntries(trashRoot);
+    trash.bytes = entries.reduce((s, e) => s + measureBytes(e.abs), 0);
+    trash.count = entries.filter((e) => e.st.isDirectory()).length;
+  }
+
+  const backupRoot = cleanupRootOrNull('backups');
+  if (backupRoot) {
+    const entries = topEntries(backupRoot);
+    const files = entries.filter((e) => !e.st.isDirectory());
+    backups.bytes = entries.reduce((s, e) => s + measureBytes(e.abs), 0);
+    backups.count = files.length;
+    backups.latest = latestName(files.map((e) => e.name));
+  }
+
+  const attachmentRoot = cleanupRootOrNull('attachments');
+  if (attachmentRoot) {
+    attachments.bytes = measureBytes(attachmentRoot);
+    attachments.count = countRegularFiles(attachmentRoot);
+  }
+
+  try {
+    archived.count = listArchivedIds(DSH_HOME).ids.filter((id) => typeof id === 'string').length;
+  } catch {
+    archived.count = 0;
+  }
+
+  return { ok: true, canManage: ownsLiveDsh(), trash, backups, attachments, archived };
+});
+
+// Decides what a kind would delete. Done before the dialog so the dialog can
+// state the real count and size. removeCleanupItems re-checks every item.
+function planCleanup(kind) {
+  const dirName = CLEANUP_DIR_BY_KIND[kind];
+  const root = cleanupRoot(dirName);
+  if (!root) return { dirName, items: [], bytes: 0, latest: null };
+  const entries = topEntries(root);
+  let chosen = entries;
+  let latest = null;
+  if (kind === 'backups-keep-latest' || kind === 'backups-all') {
+    const files = entries.filter((e) => !e.st.isDirectory());
+    latest = latestName(files.map((e) => e.name));
+    chosen = kind === 'backups-all' ? files : files.filter((e) => e.name !== latest);
+  }
+  const items = chosen.map((e) => ({ abs: e.abs, bytes: measureBytes(e.abs) }));
+  const bytes = items.reduce((s, it) => s + it.bytes, 0);
+  return { dirName, items, bytes, latest };
+}
+
+// Removes the planned items one at a time. Each item is re-checked right before
+// removal. A symlink is unlinked itself and never followed. A real entry must
+// still resolve inside the root, or it is counted as failed and left alone.
+async function removeCleanupItems(dirName, items) {
+  const result = { removed: 0, failed: 0, freed: 0 };
+  const root = cleanupRoot(dirName); // re-checked: the root may have been swapped for a symlink
+  if (!root) return result;
+  const realRoot = fs.realpathSync(root);
+  for (const item of items) {
+    let st;
+    try {
+      st = fs.lstatSync(item.abs);
+    } catch (err) {
+      if (err.code === 'ENOENT') continue; // already gone
+      result.failed++;
+      continue;
+    }
+    if (!st.isSymbolicLink()) {
+      let real = null;
+      try {
+        real = fs.realpathSync(item.abs);
+      } catch {
+        real = null;
+      }
+      if (!real || !real.startsWith(realRoot + path.sep)) {
+        result.failed++;
+        continue;
+      }
+    }
+    try {
+      await fs.promises.rm(item.abs, { recursive: true, force: true });
+      result.removed++;
+      result.freed += item.bytes;
+    } catch {
+      result.failed++;
+    }
+  }
+  return result;
+}
+
+// Native confirm dialog. Button 0 (取消) is both the default and the cancel id,
+// so Enter or Esc never confirms.
+async function confirmCleanupDialog(verb, message, detail) {
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'warning',
+    buttons: ['取消', verb],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+    message,
+    detail,
+  });
+  return response === 1;
+}
+
+function cleanupConfirmText(kind, plan) {
+  const n = plan.items.length;
+  const size = formatBytes(plan.bytes);
+  if (kind === 'trash') {
+    return {
+      verb: '清空回收区',
+      message: `将永久删除 ~/.dsh/trash/ 下的全部 ${n} 项，约 ${size}。此操作不可恢复。`,
+      detail: '回收区里是此前删除的会话文件，清空后这些会话将无法再恢复。',
+    };
+  }
+  if (kind === 'backups-keep-latest') {
+    return {
+      verb: '删除旧备份',
+      message: `将永久删除 ~/.dsh/backups/ 下除最新一份（${plan.latest}）外的 ${n} 个备份文件，约 ${size}。此操作不可恢复。`,
+      detail: '备份是 workspace.json 的历史副本。删除后将无法再从这些旧版本还原归档列表。',
+    };
+  }
+  if (kind === 'backups-all') {
+    return {
+      verb: '删除全部备份',
+      message: `将永久删除 ~/.dsh/backups/ 下全部 ${n} 个备份文件，约 ${size}。此操作不可恢复。`,
+      detail: '删除后将无法再从备份还原 workspace.json 的历史版本。',
+    };
+  }
+  return {
+    verb: '删除附件',
+    message: `将永久删除 ~/.dsh/attachments/ 下全部 ${n} 项，约 ${size}。此操作不可恢复。`,
+    detail: '仍显示在会话里的图片附件之后可能无法再显示。',
+  };
+}
+
+async function cleanupFiles(kind) {
+  const plan = planCleanup(kind);
+  if (plan.items.length === 0) return { ok: true, freedBytes: 0, done: 0 };
+  const { verb, message, detail } = cleanupConfirmText(kind, plan);
+  if (!(await confirmCleanupDialog(verb, message, detail))) return { ok: false, cancelled: true, error: '已取消' };
+  const r = await removeCleanupItems(plan.dirName, plan.items);
+  if (r.failed) return { ok: false, error: `${r.failed} 项未能删除`, freedBytes: r.freed, done: r.removed };
+  return { ok: true, freedBytes: r.freed, done: r.removed };
+}
+
+// Same stop / deleteSessions / restart path as archived-apply 'delete', with
+// this page's own confirm dialog instead of the standard one.
+async function cleanupArchivedAll() {
+  if (!ownsLiveDsh()) return { ok: false, error: CANNOT_MANAGE_REASON };
+  let archivedIds;
+  try {
+    archivedIds = listArchivedIds(DSH_HOME).ids.filter((id) => typeof id === 'string');
+  } catch (err) {
+    return { ok: false, error: `读取归档列表失败：${err.message}` };
+  }
+  if (archivedIds.length === 0) return { ok: true, done: 0 };
+  const checked = checkArchiveIds(archivedIds, archivedIds);
+  if (checked.error) return { ok: false, error: checked.error };
+  const n = checked.ids.length;
+  archiveBusy = true;
+  try {
+    const r = await runArchiveAction('delete', checked.ids, () =>
+      confirmCleanupDialog(
+        '删除全部归档会话',
+        `将永久删除全部 ${n} 个已归档会话，会话文件先移到回收区，dsh 会短暂重启一次，正在运行的会话会被中断。`,
+        '移入回收区的文件仍占用空间，需再执行“清空回收区”才会彻底删除。此操作不可恢复。'
+      )
+    );
+    if (r.cancelled) return { ok: false, cancelled: true, error: '已取消' };
+    return r;
+  } finally {
+    archiveBusy = false;
+  }
+}
+
+// One handler for every cleanup kind. The kind must be on the whitelist. The
+// shared busy flags refuse a second cleanup, and a running archive operation.
+ipcMain.handle('dsh-desktop:cleanup-apply', async (event, kind) => {
+  if (!isDshSender(event)) return { ok: false, error: '无权执行此操作' };
+  if (!CLEANUP_KINDS.includes(kind)) return { ok: false, error: '未知的清理类型' };
+  if (cleanupBusy || archiveBusy) return { ok: false, error: '已有一个操作正在进行，请稍后再试' };
+  cleanupBusy = true;
+  try {
+    if (kind === 'archived-all') return await cleanupArchivedAll();
+    return await cleanupFiles(kind);
+  } catch (err) {
+    return { ok: false, error: err.message };
+  } finally {
+    cleanupBusy = false;
   }
 });
 
