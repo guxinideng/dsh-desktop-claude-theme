@@ -465,6 +465,38 @@
     }
   }, true);
 
+  // Paste non-image files into the composer as chips. Images are left to DSH's
+  // native paste handling (no preventDefault, no chip). When a paste mixes
+  // images and other files, the chips are added but the event is not stopped,
+  // so the images still reach DSH.
+  document.addEventListener('paste', function (e) {
+    var t = e.target;
+    if (!t || typeof t.closest !== 'function') return;
+    if (!t.closest('textarea') && !t.closest('.ds-composer-card')) return;
+    var cd = e.clipboardData;
+    var files = cd && cd.files ? cd.files : null;
+    if (!files || !files.length) return;
+
+    var found = [];
+    var hasImage = false;
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      if (!f) continue;
+      if (typeof f.type === 'string' && f.type.indexOf('image/') === 0) {
+        hasImage = true;
+        continue;
+      }
+      var p = filePath(f);
+      if (p) found.push({ path: p, dir: false });
+    }
+    if (!found.length) return;
+    if (!hasImage) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    addChips(found);
+  }, true);
+
   // Emptied by hand while chips are attached: restore the sentinel.
   document.addEventListener('input', function (e) {
     if (chips.length && isComposer(e.target) && e.target.value === '') {

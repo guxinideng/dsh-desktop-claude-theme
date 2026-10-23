@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // DSH's own composer has no file picker — its "+" button opens the
 // slash-command menu, and attachments only arrive by dragging or pasting
@@ -11,6 +11,11 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('dshDesktop', {
   pickFiles: () => ipcRenderer.invoke('dsh-desktop:pick-files'),
   pickFolders: () => ipcRenderer.invoke('dsh-desktop:pick-folders'),
+  // Electron 43 removed File.path; webUtils is the only way to get a path.
+  // Returns just the path string, never file contents.
+  getPathForFile: (file) => {
+    try { return webUtils.getPathForFile(file) || ''; } catch (_) { return ''; }
+  },
   // Archived-sessions page. The list is read-only; apply runs restore or
   // delete behind a native confirm dialog in the main process.
   archivedList: () => ipcRenderer.invoke('dsh-desktop:archived-list'),
