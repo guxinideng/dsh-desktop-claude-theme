@@ -673,3 +673,10 @@ button[class*="JVDQca_remove"] svg path {
   color: #fff !important;
   fill: #fff !important;
 }
+
+/* DSH toast: its text color follows label-primary-inverted (white in our
+   theme) but the card background is white, so errors looked blank. Use the
+   normal label color so the message is readable in light and dark. */
+[class*="_toast_"][role="alert"] {
+  color: var(--dsw-alias-label-primary, rgb(40, 36, 30)) !important;
+}

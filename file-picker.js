@@ -118,17 +118,21 @@
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
 
-  // Big screenshots (retina full-screen PNGs run 5 MB+) exceed DSH's image
-  // limit or bloat the request, so the image silently never arrives. Downscale
-  // anything large to <= 2048 px JPEG before DSH sees it. Resolves the original
-  // file when it is already small or cannot be decoded. Never rejects.
+  // DSH refuses images wider/taller than 2000 px (and over 5 MiB). Retina
+  // screenshots hit both, so downscale to <= 1920 px JPEG before DSH sees
+  // them. Resolves the original file when it is already within limits or
+  // cannot be decoded. Never rejects.
   var RESIZE_BYTES = 1024 * 1024;
-  var RESIZE_MAX_SIDE = 2048;
+  var RESIZE_MAX_SIDE = 1920;
   function shrinkImage(file) {
     return new Promise(function (resolve) {
-      if (!file || file.size <= RESIZE_BYTES || typeof createImageBitmap !== 'function') return resolve(file);
+      if (!file || typeof createImageBitmap !== 'function') return resolve(file);
       createImageBitmap(file).then(function (bmp) {
         var scale = Math.min(1, RESIZE_MAX_SIDE / Math.max(bmp.width, bmp.height));
+        if (scale === 1 && file.size <= RESIZE_BYTES) {
+          if (typeof bmp.close === 'function') bmp.close();
+          return resolve(file);
+        }
         var w = Math.max(1, Math.round(bmp.width * scale));
         var h = Math.max(1, Math.round(bmp.height * scale));
         var canvas = document.createElement('canvas');
@@ -140,7 +144,7 @@
         ctx.drawImage(bmp, 0, 0, w, h);
         if (typeof bmp.close === 'function') bmp.close();
         canvas.toBlob(function (blob) {
-          if (!blob || blob.size >= file.size) return resolve(file);
+          if (!blob || (scale === 1 && blob.size >= file.size)) return resolve(file);
           var name = (file.name || 'image').replace(/\.[^.]*$/, '') + '.jpg';
           resolve(new File([blob], name, { type: 'image/jpeg' }));
         }, 'image/jpeg', 0.88);
@@ -593,12 +597,12 @@
       if (p) found.push({ path: p, dir: false });
     }
     if (!found.length) {
-      // Image-only paste: big screenshots are shrunk, then re-pasted for DSH.
+      // Image-only paste: oversized images are shrunk, then re-pasted for DSH.
       if (!hasImage || ownPaste) return;
       var big = [];
       for (var j = 0; j < files.length; j++) {
         var g = files[j];
-        if (g && g.type.indexOf('image/') === 0 && g.size > RESIZE_BYTES) big.push(g);
+        if (g && g.type.indexOf('image/') === 0) big.push(g);
       }
       if (!big.length || big.length !== files.length) return;
       var ta = composer() || t.closest('textarea');
