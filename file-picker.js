@@ -118,13 +118,49 @@
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
 
+  // Big screenshots (retina full-screen PNGs run 5 MB+) exceed DSH's image
+  // limit or bloat the request, so the image silently never arrives. Downscale
+  // anything large to <= 2048 px JPEG before DSH sees it. Resolves the original
+  // file when it is already small or cannot be decoded. Never rejects.
+  var RESIZE_BYTES = 1024 * 1024;
+  var RESIZE_MAX_SIDE = 2048;
+  function shrinkImage(file) {
+    return new Promise(function (resolve) {
+      if (!file || file.size <= RESIZE_BYTES || typeof createImageBitmap !== 'function') return resolve(file);
+      createImageBitmap(file).then(function (bmp) {
+        var scale = Math.min(1, RESIZE_MAX_SIDE / Math.max(bmp.width, bmp.height));
+        var w = Math.max(1, Math.round(bmp.width * scale));
+        var h = Math.max(1, Math.round(bmp.height * scale));
+        var canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(bmp, 0, 0, w, h);
+        if (typeof bmp.close === 'function') bmp.close();
+        canvas.toBlob(function (blob) {
+          if (!blob || blob.size >= file.size) return resolve(file);
+          var name = (file.name || 'image').replace(/\.[^.]*$/, '') + '.jpg';
+          resolve(new File([blob], name, { type: 'image/jpeg' }));
+        }, 'image/jpeg', 0.88);
+      }).catch(function () { resolve(file); });
+    });
+  }
+
   // Fire the same paste event DSH handles for a real clipboard image, so it
   // makes its own native thumbnail + ✕ and sends the image to the model.
   function pasteImageFile(ta, file) {
     var dt = new DataTransfer();
     dt.items.add(file);
-    ta.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    ownPaste = true;
+    try {
+      ta.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    } finally {
+      ownPaste = false;
+    }
   }
+  var ownPaste = false;
 
   // Resolves true when the image was handed to DSH; false means the caller
   // should fall back to a filename chip. Never rejects.
@@ -137,8 +173,12 @@
       var bytes = new Uint8Array(binary.length);
       for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       if (bytes.length > PICKED_IMAGE_MAX_BYTES) return false;
-      pasteImageFile(ta, new File([bytes], res.name || 'image', { type: res.mime }));
-      return true;
+      return shrinkImage(new File([bytes], res.name || 'image', { type: res.mime })).then(function (img) {
+        var target = composer();
+        if (!target) return false;
+        pasteImageFile(target, img);
+        return true;
+      });
     }).catch(function () { return false; });
   }
 
@@ -552,7 +592,29 @@
       var p = filePath(f);
       if (p) found.push({ path: p, dir: false });
     }
-    if (!found.length) return;
+    if (!found.length) {
+      // Image-only paste: big screenshots are shrunk, then re-pasted for DSH.
+      if (!hasImage || ownPaste) return;
+      var big = [];
+      for (var j = 0; j < files.length; j++) {
+        var g = files[j];
+        if (g && g.type.indexOf('image/') === 0 && g.size > RESIZE_BYTES) big.push(g);
+      }
+      if (!big.length || big.length !== files.length) return;
+      var ta = composer() || t.closest('textarea');
+      if (!ta) return;
+      e.preventDefault();
+      e.stopPropagation();
+      big.reduce(function (chain, img) {
+        return chain.then(function () {
+          return shrinkImage(img).then(function (small) {
+            pasteImageFile(composer() || ta, small);
+            return delay(50);
+          });
+        });
+      }, Promise.resolve());
+      return;
+    }
     if (!hasImage) {
       e.preventDefault();
       e.stopPropagation();
