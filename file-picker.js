@@ -551,10 +551,34 @@
     var dt = e.dataTransfer;
     var files = dt.files || [];
     var items = dt.items || [];
-    // Any image in the drop: leave the whole drop to DSH's native image attach.
+    // Image-only drop: shrink oversized images, then hand them to DSH the way
+    // a paste would (its native drop path rejects anything over 2000 px).
+    var imgs = [];
     for (var k = 0; k < files.length; k++) {
-      if (files[k] && typeof files[k].type === 'string' && files[k].type.indexOf('image/') === 0) return;
+      if (files[k] && typeof files[k].type === 'string' && files[k].type.indexOf('image/') === 0) imgs.push(files[k]);
     }
+    if (imgs.length && imgs.length === files.length) {
+      var dropTa = composer();
+      if (!dropTa) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // DSH never sees this drop, so its "drop images here" overlay would stay
+      // up. Its reset() is wired to window dragend; fire that.
+      setTimeout(function () {
+        window.dispatchEvent(new Event('dragend'));
+      }, 0);
+      imgs.reduce(function (chain, img) {
+        return chain.then(function () {
+          return shrinkImage(img).then(function (small) {
+            pasteImageFile(composer() || dropTa, small);
+            return delay(50);
+          });
+        });
+      }, Promise.resolve());
+      return;
+    }
+    // Mixed drop with some image: leave the whole drop to DSH's native attach.
+    if (imgs.length) return;
     e.preventDefault(); // never let Electron open the dropped file
 
     var found = [];
