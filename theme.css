@@ -657,3 +657,19 @@ body[data-ds-flat="1"] [class*="YDXeBa_sessionRow"] {
   flex-shrink: 0;
   align-items: center;
 }
+
+/* Image attachment remove button: its default fill and glyph come from
+   the contrast variables, which are white in light mode and near-black in
+   dark mode, so on a thumbnail the hover state was white-on-white or
+   black-on-black. Give it a fixed dark disc and white glyph in both modes.
+   Only the colours change; dsh's own hover-to-reveal opacity still applies. */
+button[class*="JVDQca_remove"] {
+  background: rgba(24, 23, 22, 0.72) !important;
+  color: #fff !important;
+  box-shadow: 0 0 0 1.5px #fff, 0 1px 3px rgba(0, 0, 0, 0.35) !important;
+}
+button[class*="JVDQca_remove"] svg,
+button[class*="JVDQca_remove"] svg path {
+  color: #fff !important;
+  fill: #fff !important;
+}
