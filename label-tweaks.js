@@ -38,51 +38,54 @@
   var VISION_SUFFIX = /\s*\(modlens vision\)\s*$/;
 
   function tidyModelMenu() {
+    // `:scope >` is load-bearing. The attribute selector below is a
+    // substring match, so it also matches `_groups` — the container
+    // holding every group. A descendant lookup finds the first group's
+    // title through that container, and hiding the container hides the
+    // whole menu: the symptom is a model list with nothing in it.
+    // Restricting to direct children means only a real group answers.
+    var groups = [];
     document.querySelectorAll('[class*="_group"]').forEach(function (group) {
-      // `:scope >` is load-bearing. The attribute selector above is a
-      // substring match, so it also matches `_groups` — the container
-      // holding every group. A descendant lookup finds the first group's
-      // title through that container, and hiding the container hides the
-      // whole menu: the symptom is a model list with nothing in it.
-      // Restricting to direct children means only a real group answers.
       var title = group.querySelector(':scope > [class*="_groupTitle"]');
-      if (!title) return;
-      // Pro rows: hide the menu item only. Runs before the early returns
-      // below so the vision group still gets it on every pass.
-      group.querySelectorAll('[class*="_modelName"]').forEach(function (el) {
+      if (title) groups.push({ el: group, title: title });
+    });
+
+    // Pass 1: Pro rows are hidden (menu item only), and every wrapped
+    // ("modlens vision") group is marked and renamed to its plain title.
+    // Idempotent: the mark says "this was the wrapped group before I renamed
+    // it". React drops it whenever it rebuilds the node, but that also
+    // restores the original title, so the two always agree.
+    var visionTitles = {};
+    groups.forEach(function (g) {
+      g.el.querySelectorAll('[class*="_modelName"]').forEach(function (el) {
         if (!/\bpro\b/i.test(el.textContent || '')) return;
         var row = el.closest('[role="menuitemradio"]');
         if (!row) return;
         row.dataset.dsHidePro = '1';
         row.style.display = 'none';
       });
-      var text = (title.textContent || '').trim();
-      // This runs on every mutation, so it has to be idempotent. Trimming
-      // the suffix renames the wrapped group to exactly "DeepSeek" — the
-      // same string the plain group carries — so a second pass would hide
-      // the one group worth keeping and leave the menu empty. The mark
-      // says "this one was the wrapped group before I renamed it". React
-      // drops it whenever it rebuilds the node, but that also restores the
-      // original title, so the two always agree.
-      if (group.dataset.dsVisionGroup === '1') {
-        group.style.display = '';
-        return;
+      var text = (g.title.textContent || '').trim();
+      if (g.el.dataset.dsVisionGroup !== '1' && VISION_SUFFIX.test(text)) {
+        g.el.dataset.dsVisionGroup = '1';
+        g.title.textContent = text.replace(VISION_SUFFIX, '');
       }
-      if (text === 'DeepSeek') {
-        // Hidden rather than removed: if modlens ever fails to register, a
-        // reload brings this group back on its own.
-        group.style.display = 'none';
-        return;
+      if (g.el.dataset.dsVisionGroup === '1') {
+        g.el.style.display = '';
+        visionTitles[(g.title.textContent || '').trim()] = true;
+        g.el.querySelectorAll('[class*="_modelName"]').forEach(function (el) {
+          var name = el.textContent || '';
+          if (VISION_SUFFIX.test(name)) el.textContent = name.replace(VISION_SUFFIX, '');
+        });
       }
-      if (VISION_SUFFIX.test(text)) {
-        group.dataset.dsVisionGroup = '1';
-        group.style.display = '';
-        title.textContent = text.replace(VISION_SUFFIX, '');
-      }
-      group.querySelectorAll('[class*="_modelName"]').forEach(function (el) {
-        var name = el.textContent || '';
-        if (VISION_SUFFIX.test(name)) el.textContent = name.replace(VISION_SUFFIX, '');
-      });
+    });
+
+    // Pass 2: a plain group is redundant when a wrapped group carries the
+    // same title (any provider, not just DeepSeek). Hidden rather than
+    // removed: if modlens ever fails to register, a reload brings it back.
+    groups.forEach(function (g) {
+      if (g.el.dataset.dsVisionGroup === '1') return;
+      var text = (g.title.textContent || '').trim();
+      if (visionTitles[text]) g.el.style.display = 'none';
     });
 
     document
